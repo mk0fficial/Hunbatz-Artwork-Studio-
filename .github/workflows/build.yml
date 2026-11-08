@@ -34,10 +34,15 @@ jobs:
       - name: Install project dependencies
         run: bun install
 
+      - name: Install Tauri CLI globally
+        run: bun add -g @tauri-apps/cli@latest
+
       - name: Build Tauri Desktop App
         uses: tauri-apps/tauri-action@v0.5.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --bundles all
 
   publish-android:
     runs-on: macos-latest
