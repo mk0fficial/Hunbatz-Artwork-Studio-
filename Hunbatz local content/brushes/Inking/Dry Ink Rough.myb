@@ -1,0 +1,192 @@
+{
+  "myb_version": 2,
+  "name": "Dry Ink Rough",
+  "category": "Inking",
+  "settings": {
+    "radius_logarithmic": {
+      "base_value": 2.0149030205422647
+    },
+    "opaque": {
+      "base_value": 0.98
+    },
+    "hardness": {
+      "base_value": 0.85
+    },
+    "dabs_per_actual_radius": {
+      "base_value": 20
+    },
+    "elliptical_dab_ratio": {
+      "base_value": 1
+    },
+    "elliptical_dab_angle": {
+      "base_value": 0
+    },
+    "smudge": {
+      "base_value": 0
+    },
+    "speed1_slowness": {
+      "base_value": 0.25
+    }
+  },
+  "hunbatz_preset": {
+    "id": "inking_dry_ink_rough",
+    "name": "Dry Ink Rough",
+    "category": "Inking",
+    "description": "Studio Brush Preset",
+    "size": 15,
+    "opacity": 0.98,
+    "hardness": 0.85,
+    "streamline": 0.25,
+    "spacing": 0.05,
+    "jitter": 0,
+    "texture": "bleed_ink",
+    "pressureSizeFactor": 0.8,
+    "pressureOpacityFactor": 0.19999999999999996,
+    "minSize": 1,
+    "maxSize": 400,
+    "author": "Hunbatz Studio",
+    "isCustom": true,
+    "strokePath": {
+      "spacing": 0.05,
+      "streamline": 0.25,
+      "jitter": 0,
+      "fallOff": 0
+    },
+    "stabilization": {
+      "streamline": 0.25,
+      "stabilization": 0.2,
+      "motionFiltering": 0
+    },
+    "taper": {
+      "pressureTaper": 0,
+      "tipSharpness": 0.85,
+      "sizeTaper": 0,
+      "opacityTaper": 0
+    },
+    "shape": {
+      "texture": "bleed_ink",
+      "scatter": 0,
+      "rotation": 0,
+      "followStroke": false,
+      "count": 1,
+      "countJitter": 0,
+      "roundness": 1,
+      "angle": 0,
+      "penTiltControl": false,
+      "angleOffset": 0
+    },
+    "grain": {
+      "texture": "04_paper-C-grain",
+      "mode": "moving",
+      "scale": 1,
+      "depth": 0.5,
+      "contrast": 0.5
+    },
+    "rendering": {
+      "mode": "heavy_glaze",
+      "wetEdges": 0,
+      "flow": 1,
+      "blendMode": "source-over"
+    },
+    "wetMix": {
+      "dilution": 0,
+      "charge": 0.85,
+      "attack": 0.7,
+      "pull": 0
+    },
+    "colorDynamics": {
+      "stampHueJitter": 0,
+      "stampSatJitter": 0,
+      "stampLightJitter": 0,
+      "strokeHueJitter": 0,
+      "pressureHueShift": 0
+    },
+    "dynamics": {
+      "speedSize": 0,
+      "speedOpacity": 0,
+      "jitterSize": 0,
+      "jitterOpacity": 0
+    },
+    "penControls": {
+      "pressureSizeCurve": 1,
+      "pressureOpacityCurve": 1,
+      "tiltAngle": true,
+      "tiltOpacity": 0,
+      "tiltGradation": 0,
+      "tiltSize": 0
+    },
+    "properties": {
+      "orientToScreen": true,
+      "useStampPreview": true,
+      "minSize": 1,
+      "maxSize": 400
+    },
+    "materials": {
+      "metallic": 0,
+      "roughness": 0.5
+    },
+    "applePencil": {
+      "pressureSize": 0.8,
+      "pressureOpacity": 0,
+      "pressureFlow": 0,
+      "pressureBleed": 0,
+      "pressureSoftness": 0,
+      "tiltAngle": 0,
+      "tiltOpacity": 0,
+      "tiltGradation": 0,
+      "tiltBleed": 0,
+      "tiltSize": 0
+    },
+    "smudge": {
+      "strength": 0.5,
+      "jitter": 0,
+      "brushFlow": 0.5
+    },
+    "kritaEngine": "pixel",
+    "kritaPatternId": "04_paper-C-grain",
+    "patternEnabled": true,
+    "patternStrength": 0.5,
+    "patternScale": 1,
+    "patternTexturingMode": "multiply",
+    "patternCutoff": 0,
+    "patternInvert": false,
+    "patternContrast": 1,
+    "patternBrightness": 0,
+    "patternOffsetX": 0,
+    "patternOffsetY": 0,
+    "patternStrengthPressure": false,
+    "spikes": 2,
+    "density": 1,
+    "randomness": 0,
+    "darkenAmount": 0,
+    "sizeByPressure": [
+      {
+        "x": 0,
+        "y": 0.19999999999999996
+      },
+      {
+        "x": 0.5,
+        "y": 0.6
+      },
+      {
+        "x": 1,
+        "y": 1
+      }
+    ],
+    "opacityByPressure": [
+      {
+        "x": 0,
+        "y": 0.8
+      },
+      {
+        "x": 0.5,
+        "y": 0.9
+      },
+      {
+        "x": 1,
+        "y": 1
+      }
+    ],
+    "blendMode": "source-over"
+  }
+}
