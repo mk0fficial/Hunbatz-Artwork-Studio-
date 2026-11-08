@@ -41,18 +41,25 @@ jobs:
       - name: Install Tauri CLI
         run: bun add -d @tauri-apps/cli@latest
 
-      - name: Bootstrap Tauri Rust files and Square Icon
+      - name: Bootstrap Tauri Rust files, package.json script, and Square Icon
         run: |
           bun -e '
           const fs = require("fs");
           const zlib = require("zlib");
 
+          // 1. Ensure package.json has "tauri": "tauri" script so tauri-action succeeds
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          pkg.scripts = pkg.scripts || {};
+          pkg.scripts.tauri = "tauri";
+          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+
+          // 2. Ensure Rust entry files exist
           fs.mkdirSync("src-tauri/src", { recursive: true });
           fs.writeFileSync("src-tauri/build.rs", "fn main() { tauri_build::build() }\n");
           fs.writeFileSync("src-tauri/src/lib.rs", "#[cfg_attr(mobile, tauri::mobile_entry_point)]\npub fn run() {\n  tauri::Builder::default().run(tauri::generate_context!()).expect(\"error while running tauri application\");\n}\n");
           fs.writeFileSync("src-tauri/src/main.rs", "#![cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")]\nfn main() {\n  hunbatz_artwork_studio_lib::run();\n}\n");
 
-          // Generate a valid 512x512 square RGBA PNG for tauri icon
+          // 3. Generate a valid 512x512 square RGBA PNG for tauri icon
           const w = 512, h = 512;
           const raw = Buffer.alloc(h * (1 + w * 4));
           for (let y = 0; y < h; y++) {
@@ -139,6 +146,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'cmdline-tools;latest platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
@@ -156,11 +165,16 @@ jobs:
       - name: Install Tauri CLI
         run: bun add -d @tauri-apps/cli@latest
 
-      - name: Bootstrap Tauri Rust files and Square Icon
+      - name: Bootstrap Tauri Rust files, package.json script, and Square Icon
         run: |
           bun -e '
           const fs = require("fs");
           const zlib = require("zlib");
+
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          pkg.scripts = pkg.scripts || {};
+          pkg.scripts.tauri = "tauri";
+          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
 
           fs.mkdirSync("src-tauri/src", { recursive: true });
           fs.writeFileSync("src-tauri/build.rs", "fn main() { tauri_build::build() }\n");
