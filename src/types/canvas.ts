@@ -728,6 +728,8 @@ export interface ArtworkProject {
   }[];
   thumbnailUrl: string;
   recordedStrokes?: CanvasStrokeRecord[];
+  fileName?: string;
+  fileSize?: number;
 }
 
 export type ActiveAdjustment =

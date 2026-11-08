@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import JSZip from 'jszip';
 import { parseMybFile, parseKppFile, serializeBrushToMyb } from './src/utils/brushParsers';
 import { universalToBrush } from './src/types/brush';
 import { hydrateBrush, DEFAULT_BRUSH_CATEGORIES } from './src/constants/brushes';
@@ -12,16 +13,17 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 const LOCAL_CONTENT_DIR = path.resolve(process.cwd(), 'Hunbatz local content');
 const BRUSHES_DIR = path.join(LOCAL_CONTENT_DIR, 'brushes');
 const TEXTURES_DIR = path.join(LOCAL_CONTENT_DIR, 'textures');
 const TIPS_DIR = path.join(LOCAL_CONTENT_DIR, 'brush tips');
+const PROJECTS_DIR = path.join(LOCAL_CONTENT_DIR, 'Projects');
 
 // Ensure base directories exist
-for (const dir of [LOCAL_CONTENT_DIR, BRUSHES_DIR, TEXTURES_DIR, TIPS_DIR]) {
+for (const dir of [LOCAL_CONTENT_DIR, BRUSHES_DIR, TEXTURES_DIR, TIPS_DIR, PROJECTS_DIR]) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -54,6 +56,10 @@ app.get('/api/local-content/status', (_req, res) => {
       ? fs.readdirSync(TIPS_DIR).filter((f) => /\.(png|jpg|jpeg|webp|gbr)$/i.test(f)).length
       : 0;
 
+    const projects = fs.existsSync(PROJECTS_DIR)
+      ? fs.readdirSync(PROJECTS_DIR).filter((f) => f.toLowerCase().endsWith('.hbatz')).length
+      : 0;
+
     res.json({
       ok: true,
       path: LOCAL_CONTENT_DIR,
@@ -62,6 +68,7 @@ app.get('/api/local-content/status', (_req, res) => {
       totalBrushes,
       texturesCount: textures,
       tipsCount: tips,
+      projectsCount: projects,
     });
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err.message });
@@ -405,6 +412,149 @@ app.get('/api/local-content/brush-tips', (_req, res) => {
     });
 
     res.json({ ok: true, tips });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 8. Get all .HBATZ projects stored in Hunbatz local content/Projects/
+app.get('/api/local-content/projects', async (_req, res) => {
+  try {
+    if (!fs.existsSync(PROJECTS_DIR)) {
+      return res.json({ ok: true, projects: [] });
+    }
+
+    const files = fs.readdirSync(PROJECTS_DIR).filter((f) => f.toLowerCase().endsWith('.hbatz'));
+    const projects: any[] = [];
+
+    for (const file of files) {
+      try {
+        const filePath = path.join(PROJECTS_DIR, file);
+        const stat = fs.statSync(filePath);
+        const fileBuf = fs.readFileSync(filePath);
+        const zip = await JSZip.loadAsync(fileBuf);
+        const manifestFile = zip.file('manifest.json');
+        if (manifestFile) {
+          const manifestText = await manifestFile.async('string');
+          const manifest = JSON.parse(manifestText);
+          if (manifest.artwork) {
+            projects.push({
+              fileName: file,
+              fileSize: stat.size,
+              updatedAt: manifest.updatedAt || stat.mtimeMs,
+              createdAt: manifest.createdAt || stat.birthtimeMs,
+              artwork: {
+                ...manifest.artwork,
+                fileName: file,
+                fileSize: stat.size,
+                layers: manifest.layers || [],
+              },
+              url: `/hunbatz-content/Projects/${encodeURIComponent(file)}`,
+            });
+          }
+        }
+      } catch (fileErr) {
+        console.error(`Failed to parse .hbatz project file ${file}:`, fileErr);
+      }
+    }
+
+    // Sort by updatedAt descending (newest on top)
+    projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    res.json({ ok: true, projects });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 9. Save .HBATZ project binary directly into Hunbatz local content/Projects/
+app.post(
+  '/api/local-content/projects/save-binary',
+  express.raw({ type: () => true, limit: '200mb' }),
+  async (req, res) => {
+    try {
+      const fileNameParam = (req.query.fileName as string) || (req.headers['x-filename'] as string);
+      if (!fileNameParam) {
+        return res.status(400).json({ ok: false, error: 'Missing fileName parameter' });
+      }
+
+      if (!fs.existsSync(PROJECTS_DIR)) {
+        fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+      }
+
+      const safeName = path.basename(fileNameParam).replace(/[/\\?%*:|"<>]/g, '_');
+      const finalFileName = safeName.endsWith('.hbatz') ? safeName : `${safeName}.hbatz`;
+      const targetPath = path.join(PROJECTS_DIR, finalFileName);
+
+      const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
+      if (!buffer || buffer.length === 0) {
+        return res.status(400).json({ ok: false, error: 'Empty file payload' });
+      }
+
+      fs.writeFileSync(targetPath, buffer);
+      console.log(`Saved .HBATZ project: ${targetPath} (${buffer.length} bytes)`);
+
+      res.json({
+        ok: true,
+        fileName: finalFileName,
+        size: buffer.length,
+        url: `/hunbatz-content/Projects/${encodeURIComponent(finalFileName)}`,
+      });
+    } catch (err: any) {
+      console.error('Error saving .HBATZ project to local content:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  }
+);
+
+// 9b. Save .HBATZ project JSON base64
+app.post('/api/local-content/projects/save', async (req, res) => {
+  try {
+    const { fileName, base64Data } = req.body;
+    if (!fileName || !base64Data) {
+      return res.status(400).json({ ok: false, error: 'Missing fileName or base64Data' });
+    }
+
+    if (!fs.existsSync(PROJECTS_DIR)) {
+      fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+    }
+
+    const safeName = path.basename(fileName).replace(/[/\\?%*:|"<>]/g, '_');
+    const finalFileName = safeName.endsWith('.hbatz') ? safeName : `${safeName}.hbatz`;
+    const targetPath = path.join(PROJECTS_DIR, finalFileName);
+
+    const base64Clean = base64Data.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Clean, 'base64');
+    fs.writeFileSync(targetPath, buffer);
+
+    res.json({
+      ok: true,
+      fileName: finalFileName,
+      size: buffer.length,
+      url: `/hunbatz-content/Projects/${encodeURIComponent(finalFileName)}`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 10. Delete .HBATZ project from Hunbatz local content/Projects/
+app.delete('/api/local-content/projects/:fileName', (req, res) => {
+  try {
+    const { fileName } = req.params;
+    if (!fileName) return res.status(400).json({ ok: false, error: 'File name required' });
+
+    const safeName = path.basename(fileName);
+    const finalFileName = safeName.endsWith('.hbatz') ? safeName : `${safeName}.hbatz`;
+    const targetPath = path.join(PROJECTS_DIR, finalFileName);
+
+    if (fs.existsSync(targetPath)) {
+      fs.unlinkSync(targetPath);
+      console.log(`Deleted project from disk: ${targetPath}`);
+      return res.json({ ok: true, deleted: finalFileName });
+    }
+
+    res.json({ ok: true, message: 'File not found or already deleted' });
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err.message });
   }

@@ -330,13 +330,12 @@ function blobToImageElement(blob: Blob): Promise<HTMLImageElement> {
 }
 
 /**
- * Serializes the complete Hunbatz Studio artwork into a lightweight, non-destructive .HBATZ project package.
+ * Serializes the complete Hunbatz Studio artwork into a lightweight, non-destructive .HBATZ zip Blob.
  */
-export async function exportAsHbatz(
+export async function buildHbatzZipBlob(
   artwork: ArtworkProject,
-  layers: Layer[],
-  filename: string
-): Promise<void> {
+  layers: Layer[]
+): Promise<Blob> {
   const zip = new JSZip();
 
   const serializedLayers: HbatzLayerMeta[] = [];
@@ -456,7 +455,85 @@ export async function exportAsHbatz(
     compressionOptions: { level: 6 },
   });
 
-  downloadBlob(zipBlob, `${filename}.hbatz`);
+  return zipBlob;
+}
+
+/**
+ * Downloads the complete Hunbatz Studio artwork as a .HBATZ file to the client.
+ */
+export async function exportAsHbatz(
+  artwork: ArtworkProject,
+  layers: Layer[],
+  filename: string
+): Promise<void> {
+  const zipBlob = await buildHbatzZipBlob(artwork, layers);
+  const cleanName = filename.endsWith('.hbatz') ? filename : `${filename}.hbatz`;
+  downloadBlob(zipBlob, cleanName);
+}
+
+/**
+ * Saves or updates a project directly to Hunbatz local content/Projects/ on disk via the server API.
+ */
+export async function saveProjectToLocalContent(
+  artwork: ArtworkProject,
+  layers: Layer[],
+  fileName?: string
+): Promise<{ ok: boolean; fileName: string; size: number }> {
+  const targetFileName = (
+    fileName ||
+    artwork.fileName ||
+    `${artwork.title.replace(/[/\\?%*:|"<>]/g, '_').trim() || 'Artwork'}.hbatz`
+  );
+  const cleanFileName = targetFileName.endsWith('.hbatz') ? targetFileName : `${targetFileName}.hbatz`;
+  const blob = await buildHbatzZipBlob(artwork, layers);
+
+  const res = await fetch(`/api/local-content/projects/save-binary?fileName=${encodeURIComponent(cleanFileName)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+    },
+    body: blob,
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Failed to save project to disk (${res.status})`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Fetches the list of all .HBATZ projects stored in Hunbatz local content/Projects/
+ */
+export async function fetchLocalProjects(): Promise<
+  Array<{
+    fileName: string;
+    fileSize: number;
+    updatedAt: number;
+    createdAt: number;
+    artwork: ArtworkProject;
+    url: string;
+  }>
+> {
+  const res = await fetch('/api/local-content/projects');
+  if (!res.ok) throw new Error('Failed to load local projects');
+  const data = await res.json();
+  return data.projects || [];
+}
+
+/**
+ * Deletes a project .HBATZ file from Hunbatz local content/Projects/
+ */
+export async function deleteLocalProject(fileName: string): Promise<void> {
+  const cleanName = fileName.endsWith('.hbatz') ? fileName : `${fileName}.hbatz`;
+  const res = await fetch(`/api/local-content/projects/${encodeURIComponent(cleanName)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to delete project file from disk');
+  }
 }
 
 /**

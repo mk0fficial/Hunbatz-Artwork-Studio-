@@ -8,6 +8,9 @@ import {
   Trash2,
   Sparkles,
   Calendar,
+  HardDrive,
+  FileArchive,
+  Download,
 } from 'lucide-react';
 import {
   MayanCornerBrackets,
@@ -23,6 +26,13 @@ interface GalleryViewProps {
   onDeleteArtwork: (id: string) => void;
   onImportImage: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onImportHbatz?: (file: File) => void;
+}
+
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const CANVAS_PRESETS = [
@@ -96,9 +106,9 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
           <div className="mayan-panel p-6 rounded-2xl border-2 border-[#5fd3ad] shadow-[0_0_50px_rgba(95,211,173,0.5)] flex flex-col items-center gap-3">
             <Sparkles size={36} className="text-[#5fd3ad] animate-bounce" />
             <span className="font-mayan text-base font-bold text-[#f2fbf7] tracking-wider">
-              Drop .HBATZ or Image to Import
+              Drop .HBATZ or Image to Copy into Projects/
             </span>
-            <span className="text-xs text-[#5fd3ad] font-mono">Instant Project Deserialization</span>
+            <span className="text-xs text-[#5fd3ad] font-mono">Auto-saved to Hunbatz local content/Projects/</span>
           </div>
         </div>
       )}
@@ -112,9 +122,10 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
               HUNBATZ ART STUDIO
             </h1>
           </div>
-          <span className="hidden sm:inline-block text-[11px] text-[#b89058]/80 font-mono uppercase tracking-wider pl-2 border-l border-[#2c3532]">
-            Ceremonial Canvas
-          </span>
+          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0d1210] border border-[#2c3532] text-[11px] font-mono text-[#5fd3ad] shadow-inner">
+            <HardDrive size={12} className="text-[#b89058]" />
+            <span>Hunbatz local content / Projects</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -146,7 +157,11 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
         <div className="flex items-center justify-between border-b border-[#2c3532] pb-3">
           <div className="flex items-center gap-2 text-xs text-[#b89058] font-mayan font-bold uppercase tracking-wider">
             <MayanEagleGlyph size={15} color="#5fd3ad" />
-            <span>{artworks.length} {artworks.length === 1 ? 'Artwork' : 'Artworks'} In Temple Gallery</span>
+            <span>{artworks.length} {artworks.length === 1 ? 'Artwork' : 'Artworks'} In Local Projects (.HBATZ)</span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-[#9e9484] font-mono">
+            <FileArchive size={13} className="text-[#5fd3ad]" />
+            <span>Hunbatz local content/Projects/</span>
           </div>
         </div>
 
@@ -161,6 +176,12 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
 
               {/* Thumbnail Container */}
               <div className="relative aspect-[4/3] w-full bg-[#0b0e0d] checkerboard-pattern overflow-hidden flex items-center justify-center border-b border-[#2c3532]">
+                {/* .HBATZ badge */}
+                <div className="absolute top-2.5 left-2.5 z-20 flex items-center gap-1 px-2 py-0.5 rounded bg-[#141817]/90 backdrop-blur-md border border-[#2c3532] text-[10px] font-mono text-[#5fd3ad] shadow-md">
+                  <FileArchive size={11} className="text-[#5fd3ad]" />
+                  <span>.HBATZ</span>
+                </div>
+
                 {art.thumbnailUrl ? (
                   <img
                     src={art.thumbnailUrl}
@@ -182,7 +203,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
                       contextMenuArtworkId === art.id ? null : art.id
                     );
                   }}
-                  className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-[#141817]/90 backdrop-blur-md text-[#b89058] hover:text-[#5fd3ad] border border-[#2c3532] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow-lg"
+                  className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-[#141817]/90 backdrop-blur-md text-[#b89058] hover:text-[#5fd3ad] border border-[#2c3532] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow-lg z-20"
                 >
                   <MoreVertical size={14} />
                 </button>
@@ -190,7 +211,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
                 {/* Dropdown Menu */}
                 {contextMenuArtworkId === art.id && (
                   <div
-                    className="absolute right-2.5 top-11 z-40 w-36 mayan-panel border-2 border-[#b89058]/70 shadow-2xl p-1 text-xs text-[#e6c699] flex flex-col gap-0.5 animate-in fade-in duration-100"
+                    className="absolute right-2.5 top-11 z-40 w-38 mayan-panel border-2 border-[#b89058]/70 shadow-2xl p-1 text-xs text-[#e6c699] flex flex-col gap-0.5 animate-in fade-in duration-100"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
@@ -203,6 +224,17 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
                       <Copy size={13} />
                       <span>Duplicate</span>
                     </button>
+                    {art.fileName && (
+                      <a
+                        href={`/hunbatz-content/Projects/${encodeURIComponent(art.fileName)}`}
+                        download={art.fileName}
+                        onClick={() => setContextMenuArtworkId(null)}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-[#164435]/40 hover:text-[#5fd3ad] text-left cursor-pointer transition-colors"
+                      >
+                        <Download size={13} />
+                        <span>Export .HBATZ</span>
+                      </a>
+                    )}
                     <button
                       onClick={() => {
                         onDeleteArtwork(art.id);
@@ -224,8 +256,13 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
                 </h3>
                 <div className="flex items-center justify-between text-[11px] text-[#9e9484] font-mono">
                   <span>{art.width} × {art.height} px</span>
-                  <span>{formatDate(art.updatedAt)}</span>
+                  <span>{art.fileSize ? formatBytes(art.fileSize) : formatDate(art.updatedAt)}</span>
                 </div>
+                {art.fileName && (
+                  <div className="text-[10px] text-[#b89058]/80 font-mono truncate flex items-center gap-1 mt-0.5">
+                    <span className="text-[#5fd3ad]">↳</span> {art.fileName}
+                  </div>
+                )}
               </div>
             </div>
           ))}

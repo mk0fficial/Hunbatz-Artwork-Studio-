@@ -61,6 +61,10 @@ import {
   exportAsHbatz,
   importHbatzFile,
   renderFullArtworkCanvas,
+  saveProjectToLocalContent,
+  fetchLocalProjects,
+  deleteLocalProject,
+  buildHbatzZipBlob,
 } from './utils/exportEngine';
 import { ReferenceWindow } from './components/ReferenceWindow';
 import {
@@ -670,6 +674,7 @@ export default function App() {
   const skipNextArtworkLoadRef = useRef<boolean>(false);
   const artworkLayersCacheRef = useRef<Map<string, Layer[]>>(new Map());
   const lastDeleteTimeRef = useRef<number>(0);
+  const isSavingToDiskRef = useRef<boolean>(false);
 
   // Active Artwork Workspace state
   const activeArtwork = artworks.find((a) => a.id === currentArtworkId) || artworks[0];
@@ -793,6 +798,65 @@ export default function App() {
         });
       }
     });
+  }, []);
+
+  // Synchronize and load all artworks from Hunbatz local content/Projects/
+  useEffect(() => {
+    fetchLocalProjects()
+      .then(async (diskProjects) => {
+        if (diskProjects && diskProjects.length > 0) {
+          const loadedArtworks: ArtworkProject[] = diskProjects.map((dp) => ({
+            ...dp.artwork,
+            id: dp.artwork.id || `art_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            fileName: dp.fileName,
+            fileSize: dp.fileSize,
+            updatedAt: dp.updatedAt,
+            createdAt: dp.createdAt,
+          }));
+          setArtworks(loadedArtworks);
+          setCurrentArtworkId((curr) => {
+            if (curr && loadedArtworks.some((a) => a.id === curr)) return curr;
+            return loadedArtworks[0]?.id || null;
+          });
+        } else {
+          // If Projects/ directory on disk is currently empty, initialize demo artwork and write .hbatz to disk
+          const demo = generateInitialArtwork();
+          const demoFileName = 'Neon_Twilight_Horizon.hbatz';
+          demo.fileName = demoFileName;
+
+          const demoLayers: Layer[] = demo.layers.map((lData) => {
+            const layer = createLayer(lData.id, lData.name, demo.width, demo.height, {
+              visible: lData.visible,
+              opacity: lData.opacity,
+              blendMode: lData.blendMode,
+              locked: lData.locked,
+            });
+            if (lData.dataUrl) {
+              const img = new Image();
+              img.src = lData.dataUrl;
+              img.onload = () => {
+                layer.ctx.drawImage(img, 0, 0);
+              };
+            }
+            return layer;
+          });
+
+          artworkLayersCacheRef.current.set(demo.id, demoLayers.map(cloneLayerSnapshot));
+          setArtworks([demo]);
+          setCurrentArtworkId(demo.id);
+
+          saveProjectToLocalContent(demo, demoLayers, demoFileName)
+            .then((res) => {
+              setArtworks((prev) =>
+                prev.map((a) => (a.id === demo.id ? { ...a, fileSize: res.size } : a))
+              );
+            })
+            .catch((e) => console.error('Failed to initialize demo .hbatz on disk:', e));
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not read projects from local content folder:', err);
+      });
   }, []);
 
   // Toast feedback message
@@ -1272,76 +1336,120 @@ export default function App() {
       return;
     }
 
-    const loadedLayers: Layer[] = [];
-    let pendingCount = activeArtwork.layers.length;
+    let cancelled = false;
 
-    if (pendingCount === 0) {
-      const defaultLayer = createLayer(`layer_${Date.now()}`, 'Layer 1', activeArtwork.width, activeArtwork.height);
-      setLayers([defaultLayer]);
-      setActiveLayerId(defaultLayer.id);
-      return;
-    }
+    const loadFallbackLayers = () => {
+      const loadedLayers: Layer[] = [];
+      let pendingCount = activeArtwork.layers.length;
 
-    activeArtwork.layers.forEach((lData: any) => {
-      const layer = createLayer(
-        lData.id,
-        lData.name,
-        activeArtwork.width,
-        activeArtwork.height,
-        {
-          visible: lData.visible,
-          opacity: lData.opacity,
-          blendMode: lData.blendMode,
-          locked: lData.locked,
-          alphaLocked: lData.alphaLocked,
-          type: lData.type || 'raster',
-          parentId: lData.parentId,
-          isExpanded: lData.isExpanded,
-          isVector: lData.isVector,
-          vectorPaths: lData.vectorPaths,
-          adjustmentConfig: lData.adjustmentConfig,
-          effects: lData.effects,
-          smartFilters: lData.smartFilters,
-        }
-      );
-
-      if (lData.dataUrl) {
-        const img = new Image();
-        img.onload = () => {
-          layer.ctx.imageSmoothingEnabled = true;
-          layer.ctx.imageSmoothingQuality = 'high';
-          layer.ctx.drawImage(img, 0, 0);
-          layer.thumbnailUrl = lData.dataUrl;
-          pendingCount--;
-          if (pendingCount === 0) {
-            setLayers([...loadedLayers]);
-            setActiveLayerId(loadedLayers[loadedLayers.length - 1]?.id || '');
-          }
-        };
-        img.onerror = () => {
-          pendingCount--;
-          if (pendingCount === 0) {
-            setLayers([...loadedLayers]);
-            setActiveLayerId(loadedLayers[loadedLayers.length - 1]?.id || '');
-          }
-        };
-        img.src = lData.dataUrl;
-      } else {
-        pendingCount--;
-        if (pendingCount === 0) {
-          setLayers([...loadedLayers]);
-          setActiveLayerId(loadedLayers[loadedLayers.length - 1]?.id || '');
-        }
+      if (pendingCount === 0) {
+        const defaultLayer = createLayer(`layer_${Date.now()}`, 'Layer 1', activeArtwork.width, activeArtwork.height);
+        setLayers([defaultLayer]);
+        setActiveLayerId(defaultLayer.id);
+        return;
       }
 
-      loadedLayers.push(layer);
-    });
+      activeArtwork.layers.forEach((lData: any) => {
+        const layer = createLayer(
+          lData.id,
+          lData.name,
+          activeArtwork.width,
+          activeArtwork.height,
+          {
+            visible: lData.visible,
+            opacity: lData.opacity,
+            blendMode: lData.blendMode,
+            locked: lData.locked,
+            alphaLocked: lData.alphaLocked,
+            type: lData.type || 'raster',
+            parentId: lData.parentId,
+            isExpanded: lData.isExpanded,
+            isVector: lData.isVector,
+            vectorPaths: lData.vectorPaths,
+            adjustmentConfig: lData.adjustmentConfig,
+            effects: lData.effects,
+            smartFilters: lData.smartFilters,
+          }
+        );
 
-    historyStackRef.current = [];
-    redoStackRef.current = [];
+        if (lData.dataUrl) {
+          const img = new Image();
+          img.onload = () => {
+            if (cancelled) return;
+            layer.ctx.imageSmoothingEnabled = true;
+            layer.ctx.imageSmoothingQuality = 'high';
+            layer.ctx.drawImage(img, 0, 0);
+            layer.thumbnailUrl = lData.dataUrl;
+            pendingCount--;
+            if (pendingCount === 0) {
+              setLayers([...loadedLayers]);
+              setActiveLayerId(loadedLayers[loadedLayers.length - 1]?.id || '');
+            }
+          };
+          img.onerror = () => {
+            if (cancelled) return;
+            pendingCount--;
+            if (pendingCount === 0) {
+              setLayers([...loadedLayers]);
+              setActiveLayerId(loadedLayers[loadedLayers.length - 1]?.id || '');
+            }
+          };
+          img.src = lData.dataUrl;
+        } else {
+          pendingCount--;
+          if (pendingCount === 0) {
+            setLayers([...loadedLayers]);
+            setActiveLayerId(loadedLayers[loadedLayers.length - 1]?.id || '');
+          }
+        }
+
+        loadedLayers.push(layer);
+      });
+
+      historyStackRef.current = [];
+      redoStackRef.current = [];
+    };
+
+    // If project exists on disk in Hunbatz local content/Projects/, load full .hbatz archive
+    if (activeArtwork.fileName) {
+      fetch(`/hunbatz-content/Projects/${encodeURIComponent(activeArtwork.fileName)}`)
+        .then((res) => {
+          if (!res.ok) throw new Error('File not found');
+          return res.blob();
+        })
+        .then(async (blob) => {
+          if (cancelled) return;
+          if (blob.size > 0) {
+            const { layers: unpackedLayers } = await importHbatzFile(blob);
+            if (cancelled) return;
+            if (unpackedLayers && unpackedLayers.length > 0) {
+              artworkLayersCacheRef.current.set(
+                activeArtwork.id,
+                unpackedLayers.map(cloneLayerSnapshot)
+              );
+              setLayers(unpackedLayers);
+              setActiveLayerId(unpackedLayers[unpackedLayers.length - 1]?.id || '');
+              historyStackRef.current = [];
+              redoStackRef.current = [];
+              return;
+            }
+          }
+          throw new Error('Empty archive');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          loadFallbackLayers();
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    loadFallbackLayers();
   }, [currentArtworkId]);
 
-  // Persist current project to storage & cache full rich layers in memory
+  // Persist current project to storage, memory cache, and Hunbatz local content/Projects/ as .HBATZ
   const saveCurrentArtwork = useCallback(() => {
     if (!activeArtwork || layers.length === 0) return;
 
@@ -1381,8 +1489,13 @@ export default function App() {
       dataUrl: l.canvas.toDataURL(),
     }));
 
+    const safeTitle = (activeArtwork.title || 'Artwork').replace(/[/\\?%*:|"<>]/g, '_').trim() || 'Artwork';
+    const targetFileName = activeArtwork.fileName || `${safeTitle}.hbatz`;
+    const cleanFileName = targetFileName.endsWith('.hbatz') ? targetFileName : `${targetFileName}.hbatz`;
+
     const updatedArtwork: ArtworkProject = {
       ...activeArtwork,
+      fileName: cleanFileName,
       updatedAt: Date.now(),
       backgroundColor,
       thumbnailUrl: thumbCanvas.toDataURL('image/jpeg', 0.92),
@@ -1397,6 +1510,22 @@ export default function App() {
       } catch {}
       return next;
     });
+
+    if (!isSavingToDiskRef.current) {
+      isSavingToDiskRef.current = true;
+      saveProjectToLocalContent(updatedArtwork, layers, cleanFileName)
+        .then((res) => {
+          setArtworks((prev) =>
+            prev.map((a) => (a.id === updatedArtwork.id ? { ...a, fileSize: res.size } : a))
+          );
+        })
+        .catch((err) => {
+          console.warn('Auto-save to Projects/ skipped or failed:', err);
+        })
+        .finally(() => {
+          isSavingToDiskRef.current = false;
+        });
+    }
   }, [activeArtwork, layers, backgroundColor, recordedStrokes]);
 
   // Auto-save debounced
@@ -3131,9 +3260,14 @@ export default function App() {
     artworkLayersCacheRef.current.set(newId, [cloneLayerSnapshot(firstLayer)]);
     skipNextArtworkLoadRef.current = true;
 
+    const chosenTitle = title || `Untitled Artwork ${artworks.length + 1}`;
+    const safeTitle = chosenTitle.replace(/[/\\?%*:|"<>]/g, '_').trim() || 'Artwork';
+    const targetFileName = `${safeTitle}.hbatz`;
+
     const newArt: ArtworkProject = {
       id: newId,
-      title: title || `Untitled Artwork ${artworks.length + 1}`,
+      title: chosenTitle,
+      fileName: targetFileName,
       width,
       height,
       createdAt: Date.now(),
@@ -3161,23 +3295,57 @@ export default function App() {
     setActiveLayerId(firstLayer.id);
     setBackgroundColor('#ffffff');
     setInGallery(false);
+
+    // Save project directly into Hunbatz local content/Projects/ as .HBATZ file
+    saveProjectToLocalContent(newArt, [firstLayer], targetFileName)
+      .then((res) => {
+        setArtworks((prev) =>
+          prev.map((a) => (a.id === newId ? { ...a, fileSize: res.size } : a))
+        );
+      })
+      .catch((err) => console.error('Failed to create local .hbatz project file:', err));
   };
 
-  const handleDuplicateArtwork = (id: string) => {
+  const handleDuplicateArtwork = async (id: string) => {
     const art = artworks.find((a) => a.id === id);
     if (!art) return;
     const newId = `art_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const cached = artworkLayersCacheRef.current.get(id);
-    if (cached) {
-      artworkLayersCacheRef.current.set(newId, cached.map(cloneLayerSnapshot));
+
+    // Retrieve full layers from memory cache or directly from disk .hbatz
+    let dupLayers = artworkLayersCacheRef.current.get(id);
+    if (!dupLayers && art.fileName) {
+      try {
+        const res = await fetch(`/hunbatz-content/Projects/${encodeURIComponent(art.fileName)}`);
+        if (res.ok) {
+          const blob = await res.blob();
+          const unpacked = await importHbatzFile(blob);
+          dupLayers = unpacked.layers;
+        }
+      } catch (e) {
+        console.warn('Failed to load layers from disk for duplication:', e);
+      }
     }
+
+    if (!dupLayers || dupLayers.length === 0) {
+      dupLayers = [createLayer(`layer_${Date.now()}`, 'Layer 1', art.width, art.height)];
+    }
+
+    const clonedLayers = dupLayers.map(cloneLayerSnapshot);
+    artworkLayersCacheRef.current.set(newId, clonedLayers);
+
+    const dupTitle = `${art.title} Copy`;
+    const safeDup = dupTitle.replace(/[/\\?%*:|"<>]/g, '_').trim() || 'Artwork_Copy';
+    const dupFileName = `${safeDup}.hbatz`;
+
     const dup: ArtworkProject = {
       ...art,
       id: newId,
-      title: `${art.title} Copy`,
+      title: dupTitle,
+      fileName: dupFileName,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+
     setArtworks((prev) => {
       const next = [dup, ...prev];
       try {
@@ -3185,7 +3353,16 @@ export default function App() {
       } catch {}
       return next;
     });
-    showToast(`Duplicated "${art.title}"`);
+
+    saveProjectToLocalContent(dup, clonedLayers, dupFileName)
+      .then((res) => {
+        setArtworks((prev) =>
+          prev.map((a) => (a.id === newId ? { ...a, fileSize: res.size } : a))
+        );
+      })
+      .catch((e) => console.error('Failed to save duplicate to local content:', e));
+
+    showToast(`Duplicated "${art.title}" to Projects/`);
   };
 
   const handleDeleteArtwork = useCallback((id: string) => {
@@ -3212,6 +3389,13 @@ export default function App() {
       if (currentArtworkId === id && next.length > 0) {
         setCurrentArtworkId(next[0].id);
       }
+
+      // Delete .HBATZ file from Hunbatz local content/Projects/
+      const fileNameToDelete = deletedArt.fileName || `${deletedArt.title.replace(/[/\\?%*:|"<>]/g, '_')}.hbatz`;
+      deleteLocalProject(fileNameToDelete)
+        .then(() => console.log(`Deleted project from disk: ${fileNameToDelete}`))
+        .catch((e) => console.error('Failed to delete .hbatz from disk:', e));
+
       showToast(`Deleted "${deletedArt.title}"`);
       return next;
     });
@@ -3223,9 +3407,13 @@ export default function App() {
       const { artwork, layers: restoredLayers } = await importHbatzFile(file);
 
       const uniqueArtworkId = `art_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const safeName = file.name.replace(/[/\\?%*:|"<>]/g, '_');
+      const targetFileName = safeName.endsWith('.hbatz') ? safeName : `${safeName}.hbatz`;
+
       const uniqueArtwork: ArtworkProject = {
         ...artwork,
         id: uniqueArtworkId,
+        fileName: targetFileName,
         updatedAt: Date.now(),
       };
 
@@ -3235,6 +3423,15 @@ export default function App() {
       );
 
       skipNextArtworkLoadRef.current = true;
+
+      // Copy imported .HBATZ file directly to Hunbatz local content/Projects/
+      saveProjectToLocalContent(uniqueArtwork, restoredLayers, targetFileName)
+        .then((res) => {
+          setArtworks((prev) =>
+            prev.map((a) => (a.id === uniqueArtworkId ? { ...a, fileSize: res.size } : a))
+          );
+        })
+        .catch((e) => console.error('Failed to copy imported .hbatz to local content:', e));
 
       setArtworks((prev) => {
         const next = [uniqueArtwork, ...prev];
@@ -3251,7 +3448,7 @@ export default function App() {
       historyStackRef.current = [];
       redoStackRef.current = [];
       setInGallery(false);
-      showToast(`Loaded "${uniqueArtwork.title}.hbatz" (${restoredLayers.length} layers)!`);
+      showToast(`Copied & opened "${targetFileName}" in Projects/!`);
     } catch (err: any) {
       console.error(err);
       showToast(`Failed to open .hbatz: ${err.message}`);
@@ -3270,24 +3467,76 @@ export default function App() {
 
     if (file.name.toLowerCase().endsWith('.json')) {
       const reader = new FileReader();
-      reader.onload = (re) => {
+      reader.onload = async (re) => {
         try {
           const parsed = JSON.parse(re.target?.result as string);
+          const baseName = file.name.replace(/\.json$/i, '');
+          const safeName = baseName.replace(/[/\\?%*:|"<>]/g, '_');
+          const targetFileName = `${safeName}.hbatz`;
+          const newId = `art_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
           const newArt: ArtworkProject = {
-            id: `art_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            title: parsed.title || file.name.replace('.json', ''),
+            id: newId,
+            title: parsed.title || baseName,
+            fileName: targetFileName,
             width: parsed.width || 1920,
             height: parsed.height || 1080,
             backgroundColor: parsed.backgroundColor || '#ffffff',
             createdAt: Date.now(),
             updatedAt: Date.now(),
-            thumbnailUrl: '',
+            thumbnailUrl: parsed.thumbnailUrl || '',
             layers: parsed.layers || [],
           };
+
+          const reconstitutedLayers: Layer[] = [];
+          if (Array.isArray(parsed.layers) && parsed.layers.length > 0) {
+            for (const lData of parsed.layers) {
+              const layer = createLayer(lData.id, lData.name, newArt.width, newArt.height, {
+                visible: lData.visible,
+                opacity: lData.opacity,
+                blendMode: lData.blendMode,
+                locked: lData.locked,
+                alphaLocked: lData.alphaLocked,
+                effects: lData.effects,
+                adjustmentConfig: lData.adjustmentConfig,
+              });
+              if (lData.dataUrl) {
+                const img = new Image();
+                img.src = lData.dataUrl;
+                await new Promise((resolve) => {
+                  img.onload = () => {
+                    layer.ctx.drawImage(img, 0, 0);
+                    resolve(true);
+                  };
+                  img.onerror = () => resolve(false);
+                });
+              }
+              reconstitutedLayers.push(layer);
+            }
+          } else {
+            reconstitutedLayers.push(createLayer(`layer_${Date.now()}`, 'Layer 1', newArt.width, newArt.height));
+          }
+
+          artworkLayersCacheRef.current.set(newId, reconstitutedLayers.map(cloneLayerSnapshot));
+          skipNextArtworkLoadRef.current = true;
+
           setArtworks((prev) => [newArt, ...prev]);
           setCurrentArtworkId(newArt.id);
+          setLayers(reconstitutedLayers);
+          setActiveLayerId(reconstitutedLayers[reconstitutedLayers.length - 1]?.id || '');
+          setBackgroundColor(newArt.backgroundColor || '#ffffff');
           setInGallery(false);
-          showToast(`Opened project "${newArt.title}"`);
+
+          // Copy imported JSON project directly into Hunbatz local content/Projects/ as .HBATZ file
+          saveProjectToLocalContent(newArt, reconstitutedLayers, targetFileName)
+            .then((res) => {
+              setArtworks((prev) =>
+                prev.map((a) => (a.id === newId ? { ...a, fileSize: res.size } : a))
+              );
+            })
+            .catch((e) => console.error('Failed to copy imported JSON project to local content:', e));
+
+          showToast(`Imported & copied "${targetFileName}" to Projects/!`);
         } catch {
           showToast('Could not parse project file.');
         }
@@ -3311,9 +3560,14 @@ export default function App() {
           artworkLayersCacheRef.current.set(newId, [cloneLayerSnapshot(firstLayer)]);
           skipNextArtworkLoadRef.current = true;
 
+          const baseName = file.name.replace(/\.[^/.]+$/, '');
+          const safeName = baseName.replace(/[/\\?%*:|"<>]/g, '_');
+          const targetFileName = `${safeName}.hbatz`;
+
           const newArt: ArtworkProject = {
             id: newId,
             title: file.name.replace(/\.[^/.]+$/, ''),
+            fileName: targetFileName,
             width: w,
             height: h,
             backgroundColor: '#ffffff',
@@ -3333,12 +3587,24 @@ export default function App() {
               },
             ],
           };
+
           setArtworks((prev) => [newArt, ...prev]);
           setCurrentArtworkId(newId);
           setLayers([firstLayer]);
           setActiveLayerId(firstLayer.id);
           setBackgroundColor('#ffffff');
           setInGallery(false);
+
+          // Copy imported image directly into Hunbatz local content/Projects/ as .HBATZ file
+          saveProjectToLocalContent(newArt, [firstLayer], targetFileName)
+            .then((res) => {
+              setArtworks((prev) =>
+                prev.map((a) => (a.id === newId ? { ...a, fileSize: res.size } : a))
+              );
+            })
+            .catch((e) => console.error('Failed to copy imported image to local content:', e));
+
+          showToast(`Imported & copied "${targetFileName}" to Projects/!`);
         };
         img.src = re.target?.result as string;
       };
