@@ -5,6 +5,10 @@ on:
     branches: [ "main", "master" ]
     tags:
       - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   publish-desktop:
@@ -34,40 +38,85 @@ jobs:
       - name: Install project dependencies
         run: bun install
 
-      - name: Install Tauri CLI globally
-        run: bun add -g @tauri-apps/cli@latest
+      - name: Install Tauri CLI
+        run: bun add -d @tauri-apps/cli@latest
 
-      - name: Ensure Tauri Rust files and icons exist
-        shell: bash
+      - name: Bootstrap Tauri Rust files and Square Icon
         run: |
-          mkdir -p src-tauri/src
-          if [ ! -f src-tauri/build.rs ]; then
-            echo 'fn main() { tauri_build::build() }' > src-tauri/build.rs
-          fi
-          if [ ! -f src-tauri/src/lib.rs ]; then
-            cat << 'EOF' > src-tauri/src/lib.rs
-          #[cfg_attr(mobile, tauri::mobile_entry_point)]
-          pub fn run() {
-              tauri::Builder::default()
-                  .run(tauri::generate_context!())
-                  .expect("error while running tauri application");
+          bun -e '
+          const fs = require("fs");
+          const zlib = require("zlib");
+
+          fs.mkdirSync("src-tauri/src", { recursive: true });
+          fs.writeFileSync("src-tauri/build.rs", "fn main() { tauri_build::build() }\n");
+          fs.writeFileSync("src-tauri/src/lib.rs", "#[cfg_attr(mobile, tauri::mobile_entry_point)]\npub fn run() {\n  tauri::Builder::default().run(tauri::generate_context!()).expect(\"error while running tauri application\");\n}\n");
+          fs.writeFileSync("src-tauri/src/main.rs", "#![cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")]\nfn main() {\n  hunbatz_artwork_studio_lib::run();\n}\n");
+
+          // Generate a valid 512x512 square RGBA PNG for tauri icon
+          const w = 512, h = 512;
+          const raw = Buffer.alloc(h * (1 + w * 4));
+          for (let y = 0; y < h; y++) {
+            const rowStart = y * (1 + w * 4);
+            raw[rowStart] = 0;
+            for (let x = 0; x < w; x++) {
+              const p = rowStart + 1 + x * 4;
+              raw[p] = 22; raw[p+1] = 68; raw[p+2] = 53; raw[p+3] = 255;
+            }
           }
-          EOF
-          fi
-          if [ ! -f src-tauri/src/main.rs ]; then
-            cat << 'EOF' > src-tauri/src/main.rs
-          #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-          fn main() {
-              hunbatz_artwork_studio_lib::run();
+          const crcTable = new Uint32Array(256);
+          for (let n = 0; n < 256; n++) {
+            let c = n;
+            for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+            crcTable[n] = c;
           }
-          EOF
-          fi
-          bun x tauri icon public/assets/aistudio/image_51228c80.png
+          function crc32(buf) {
+            let c = 0xffffffff;
+            for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+            return (c ^ 0xffffffff) >>> 0;
+          }
+          function chunk(type, data) {
+            const b = Buffer.alloc(12 + data.length);
+            b.writeUInt32BE(data.length, 0);
+            b.write(type, 4, 4, "ascii");
+            data.copy(b, 8);
+            b.writeUInt32BE(crc32(b.slice(4, 8 + data.length)), 8 + data.length);
+            return b;
+          }
+          const ihdr = Buffer.alloc(13);
+          ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+          ihdr[8] = 8; ihdr[9] = 6;
+          const png = Buffer.concat([
+            Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]),
+            chunk("IHDR", ihdr),
+            chunk("IDAT", zlib.deflateSync(raw)),
+            chunk("IEND", Buffer.alloc(0))
+          ]);
+          fs.writeFileSync("app-icon.png", png);
+          '
+          bun x tauri icon app-icon.png
 
       - name: Build Tauri Desktop App
         uses: tauri-apps/tauri-action@v0.5.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Hunbatz Studio v__VERSION__"
+          releaseBody: "Automated desktop installers (.exe, .msi, .dmg, .deb, .AppImage)"
+          releaseDraft: false
+          prerelease: false
+
+      - name: Upload Desktop Installers to Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installers-${{ matrix.platform }}
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: ignore
 
   publish-android:
     runs-on: ubuntu-latest
@@ -104,26 +153,61 @@ jobs:
       - name: Install project dependencies
         run: bun install
 
-      - name: Ensure Tauri Rust files and icons exist
-        shell: bash
+      - name: Install Tauri CLI
+        run: bun add -d @tauri-apps/cli@latest
+
+      - name: Bootstrap Tauri Rust files and Square Icon
         run: |
-          mkdir -p src-tauri/src
-          echo 'fn main() { tauri_build::build() }' > src-tauri/build.rs
-          cat << 'EOF' > src-tauri/src/lib.rs
-          #[cfg_attr(mobile, tauri::mobile_entry_point)]
-          pub fn run() {
-              tauri::Builder::default()
-                  .run(tauri::generate_context!())
-                  .expect("error while running tauri application");
+          bun -e '
+          const fs = require("fs");
+          const zlib = require("zlib");
+
+          fs.mkdirSync("src-tauri/src", { recursive: true });
+          fs.writeFileSync("src-tauri/build.rs", "fn main() { tauri_build::build() }\n");
+          fs.writeFileSync("src-tauri/src/lib.rs", "#[cfg_attr(mobile, tauri::mobile_entry_point)]\npub fn run() {\n  tauri::Builder::default().run(tauri::generate_context!()).expect(\"error while running tauri application\");\n}\n");
+          fs.writeFileSync("src-tauri/src/main.rs", "#![cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")]\nfn main() {\n  hunbatz_artwork_studio_lib::run();\n}\n");
+
+          const w = 512, h = 512;
+          const raw = Buffer.alloc(h * (1 + w * 4));
+          for (let y = 0; y < h; y++) {
+            const rowStart = y * (1 + w * 4);
+            raw[rowStart] = 0;
+            for (let x = 0; x < w; x++) {
+              const p = rowStart + 1 + x * 4;
+              raw[p] = 22; raw[p+1] = 68; raw[p+2] = 53; raw[p+3] = 255;
+            }
           }
-          EOF
-          cat << 'EOF' > src-tauri/src/main.rs
-          #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-          fn main() {
-              hunbatz_artwork_studio_lib::run();
+          const crcTable = new Uint32Array(256);
+          for (let n = 0; n < 256; n++) {
+            let c = n;
+            for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+            crcTable[n] = c;
           }
-          EOF
-          bun x tauri icon public/assets/aistudio/image_51228c80.png
+          function crc32(buf) {
+            let c = 0xffffffff;
+            for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+            return (c ^ 0xffffffff) >>> 0;
+          }
+          function chunk(type, data) {
+            const b = Buffer.alloc(12 + data.length);
+            b.writeUInt32BE(data.length, 0);
+            b.write(type, 4, 4, "ascii");
+            data.copy(b, 8);
+            b.writeUInt32BE(crc32(b.slice(4, 8 + data.length)), 8 + data.length);
+            return b;
+          }
+          const ihdr = Buffer.alloc(13);
+          ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+          ihdr[8] = 8; ihdr[9] = 6;
+          const png = Buffer.concat([
+            Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]),
+            chunk("IHDR", ihdr),
+            chunk("IDAT", zlib.deflateSync(raw)),
+            chunk("IEND", Buffer.alloc(0))
+          ]);
+          fs.writeFileSync("app-icon.png", png);
+          '
+          bun x tauri icon app-icon.png
 
       - name: Init Tauri Android
         env:
@@ -139,4 +223,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-release
-          path: src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+          path: |
+            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
