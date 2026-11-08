@@ -1,0 +1,6 @@
+{
+  "name": "Hunbatz Studio",
+  "description": "Professional 2D digital art and illustration studio with responsive pressure-sensitive brushes, multi-layer engine, vector lineart, compound selections, and advanced filter effects.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
