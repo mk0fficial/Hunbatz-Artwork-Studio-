@@ -37,13 +37,40 @@ jobs:
       - name: Install Tauri CLI globally
         run: bun add -g @tauri-apps/cli@latest
 
+      - name: Ensure Tauri Rust files and icons exist
+        shell: bash
+        run: |
+          mkdir -p src-tauri/src
+          if [ ! -f src-tauri/build.rs ]; then
+            echo 'fn main() { tauri_build::build() }' > src-tauri/build.rs
+          fi
+          if [ ! -f src-tauri/src/lib.rs ]; then
+            cat << 'EOF' > src-tauri/src/lib.rs
+          #[cfg_attr(mobile, tauri::mobile_entry_point)]
+          pub fn run() {
+              tauri::Builder::default()
+                  .run(tauri::generate_context!())
+                  .expect("error while running tauri application");
+          }
+          EOF
+          fi
+          if [ ! -f src-tauri/src/main.rs ]; then
+            cat << 'EOF' > src-tauri/src/main.rs
+          #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+          fn main() {
+              hunbatz_artwork_studio_lib::run();
+          }
+          EOF
+          fi
+          bun x tauri icon public/assets/aistudio/image_51228c80.png
+
       - name: Build Tauri Desktop App
         uses: tauri-apps/tauri-action@v0.5.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-android:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -56,30 +83,60 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Java JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
         with:
-          packages: 'platforms;android-34 build-tools;34.0.0'
+          ndk-version: r26d
+          link-to-sdk: true
 
       - name: Install Android targets
-        run: rustup target add aarch64-linux-android armv7-linux-android x86_64-linux-android
+        run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 
       - name: Install project dependencies
         run: bun install
 
+      - name: Ensure Tauri Rust files and icons exist
+        shell: bash
+        run: |
+          mkdir -p src-tauri/src
+          echo 'fn main() { tauri_build::build() }' > src-tauri/build.rs
+          cat << 'EOF' > src-tauri/src/lib.rs
+          #[cfg_attr(mobile, tauri::mobile_entry_point)]
+          pub fn run() {
+              tauri::Builder::default()
+                  .run(tauri::generate_context!())
+                  .expect("error while running tauri application");
+          }
+          EOF
+          cat << 'EOF' > src-tauri/src/main.rs
+          #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+          fn main() {
+              hunbatz_artwork_studio_lib::run();
+          }
+          EOF
+          bun x tauri icon public/assets/aistudio/image_51228c80.png
+
       - name: Init Tauri Android
-        run: bun x tauri android init --force
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: bun x tauri android init
 
       - name: Build Android APK
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: bun x tauri android build --apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-release
-          path: src-tauri/gen/android/app/build/outputs/apk/release/*.apk
+          path: src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
