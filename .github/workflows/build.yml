@@ -239,3 +239,19 @@ jobs:
           name: android-apk-release
           path: |
             src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+
+
+
+
+            - name: Install iOS targets
+        run: rustup target add aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim
+
+      - name: Init Tauri iOS
+        run: bun x tauri ios init --force
+
+      - name: Build iOS App
+        run: bun x tauri ios build --no-sign
+
+
+
+        
