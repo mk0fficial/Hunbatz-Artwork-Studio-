@@ -223,7 +223,7 @@ jobs:
       - name: Init Tauri Android
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: bun x tauri android init --force
+        run: bun x tauri android init
 
       - name: Build Android APK
         env:
@@ -318,7 +318,7 @@ jobs:
           bun x tauri icon app-icon.png
 
       - name: Init Tauri iOS
-        run: bun x tauri ios init --force
+        run: bun x tauri ios init
 
       - name: Build iOS App
         run: bun x tauri ios build --no-sign
