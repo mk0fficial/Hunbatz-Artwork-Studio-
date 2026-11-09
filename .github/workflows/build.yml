@@ -64,8 +64,7 @@ jobs:
 
           fs.mkdirSync("src-tauri/src", { recursive: true });
 
-          if (!fs.existsSync("src-tauri/Cargo.toml")) {
-            const cargoToml = `[package]
+          const cargoToml = `[package]
           name = "hunbatz-artwork-studio"
           version = "1.0.0"
           description = "Professional 2D digital art and illustration studio"
@@ -84,8 +83,7 @@ jobs:
           serde = { version = "1", features = ["derive"] }
           serde_json = "1"
           `;
-            fs.writeFileSync("src-tauri/Cargo.toml", cargoToml);
-          }
+          fs.writeFileSync("src-tauri/Cargo.toml", cargoToml);
 
           const tauriConf = {
             "$schema": "https://schema.tauri.app/config/2",
@@ -233,8 +231,7 @@ jobs:
 
           fs.mkdirSync("src-tauri/src", { recursive: true });
 
-          if (!fs.existsSync("src-tauri/Cargo.toml")) {
-            const cargoToml = `[package]
+          const cargoToml = `[package]
           name = "hunbatz-artwork-studio"
           version = "1.0.0"
           description = "Professional 2D digital art and illustration studio"
@@ -253,8 +250,7 @@ jobs:
           serde = { version = "1", features = ["derive"] }
           serde_json = "1"
           `;
-            fs.writeFileSync("src-tauri/Cargo.toml", cargoToml);
-          }
+          fs.writeFileSync("src-tauri/Cargo.toml", cargoToml);
 
           const tauriConf = {
             "$schema": "https://schema.tauri.app/config/2",
@@ -336,7 +332,7 @@ jobs:
           bun x tauri android init
           bun x tauri android build --apk
 
-      - name: Sign or Prepare APK for Download
+      - name: Prepare APK for Download
         run: |
           mkdir -p dist-apk
           find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} dist-apk/ \;
@@ -387,8 +383,7 @@ jobs:
 
           fs.mkdirSync("src-tauri/src", { recursive: true });
 
-          if (!fs.existsSync("src-tauri/Cargo.toml")) {
-            const cargoToml = `[package]
+          const cargoToml = `[package]
           name = "hunbatz-artwork-studio"
           version = "1.0.0"
           description = "Professional 2D digital art and illustration studio"
@@ -407,8 +402,7 @@ jobs:
           serde = { version = "1", features = ["derive"] }
           serde_json = "1"
           `;
-            fs.writeFileSync("src-tauri/Cargo.toml", cargoToml);
-          }
+          fs.writeFileSync("src-tauri/Cargo.toml", cargoToml);
 
           const tauriConf = {
             "$schema": "https://schema.tauri.app/config/2",
@@ -487,11 +481,8 @@ jobs:
         run: |
           bun run build
           bun x tauri ios init
-          PROJECT_PATH=$(find src-tauri/gen/apple -maxdepth 1 -name "*.xcodeproj" | head -n 1)
-          SCHEME_NAME=$(xcodebuild -project "$PROJECT_PATH" -list | awk '/Schemes:/{flag=1;next} flag && NF {print $1; exit}')
-          echo "Using Project: $PROJECT_PATH and Scheme: $SCHEME_NAME"
-          xcodebuild -project "$PROJECT_PATH" \
-            -scheme "$SCHEME_NAME" \
+          xcodebuild -project src-tauri/gen/apple/hunbatz-artwork-studio.xcodeproj \
+            -scheme hunbatz-artwork-studio_iOS \
             -sdk iphoneos \
             -configuration Release \
             archive -archivePath "$PWD/build/Hunbatz.xcarchive" \
