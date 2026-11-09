@@ -1,10 +1,9 @@
-name: "Build Desktop + Android"
+   name: "Build Desktop + Android"
 
-# Run it by hand: Actions tab -> "Build Desktop + Android" -> Run workflow
-on:
-  workflow_dispatch:
-  push:
-    tags: ['v*']
+   on:
+     workflow_dispatch:
+     push:
+       tags: ['v*']
 
 permissions:
   contents: write
