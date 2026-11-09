@@ -1,4 +1,4 @@
-name: "Build Desktop + Android"
+name: "Build All Platforms"
 
 on:
   workflow_dispatch:
@@ -10,20 +10,25 @@ permissions:
 
 jobs:
   desktop:
+    name: desktop (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest
+          - name: Windows
+            platform: windows-latest
             args: ''
             rust_targets: ''
-          - platform: ubuntu-22.04
+          - name: Linux
+            platform: ubuntu-22.04
             args: ''
             rust_targets: ''
-          - platform: macos-latest
+          - name: macOS Apple Silicon
+            platform: macos-latest
             args: '--target aarch64-apple-darwin'
             rust_targets: 'aarch64-apple-darwin'
-          - platform: macos-latest
+          - name: macOS Intel
+            platform: macos-latest
             args: '--target x86_64-apple-darwin'
             rust_targets: 'x86_64-apple-darwin'
     runs-on: ${{ matrix.platform }}
@@ -41,6 +46,7 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          key: desktop-${{ matrix.name }}
 
       - name: Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -54,7 +60,7 @@ jobs:
       - name: Make app icons
         run: npm run icons
 
-      - name: Build and publish installers
+      - name: Build installers
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -66,6 +72,7 @@ jobs:
           args: ${{ matrix.args }}
 
   android:
+    name: android
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -81,6 +88,7 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          key: android
 
       - uses: actions/setup-java@v4
         with:
@@ -89,7 +97,7 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK parts + NDK
+      - name: Install Android SDK parts and NDK
         run: |
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
           echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
@@ -110,3 +118,50 @@ jobs:
         with:
           name: android-apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+
+  ios:
+    name: ios + ipad
+    runs-on: macos-latest
+    # Without Apple signing keys this can only build for the simulator.
+    # It never blocks the other builds if it fails.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: ios
+
+      - name: Install JS dependencies
+        run: npm install
+
+      - name: Make app icons
+        run: npm run icons
+
+      - name: Init iOS project
+        run: npx tauri ios init --ci
+
+      - name: Build for iOS and iPad simulator
+        run: npx tauri ios build --debug --target aarch64-sim --ci
+
+      - name: Zip the simulator app
+        run: |
+          mkdir -p ios-out
+          APP=$(find src-tauri/gen/apple -name "*.app" -type d | head -n 1)
+          echo "Found: $APP"
+          if [ -n "$APP" ]; then ditto -c -k --sequesterRsrc --keepParent "$APP" ios-out/hunbatz-ios-simulator.zip; fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: ios-out/*.zip
+          if-no-files-found: warn
