@@ -57,16 +57,13 @@ jobs:
           const fs = require("fs");
           const zlib = require("zlib");
 
-          // 1. Ensure package.json has tauri script
           const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
           pkg.scripts = pkg.scripts || {};
           pkg.scripts.tauri = "tauri";
           fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
 
-          // 2. Create src-tauri structure
           fs.mkdirSync("src-tauri/src", { recursive: true });
 
-          // 3. Write Cargo.toml if missing
           if (!fs.existsSync("src-tauri/Cargo.toml")) {
             const cargoToml = `[package]
           name = "hunbatz-artwork-studio"
@@ -90,7 +87,6 @@ jobs:
             fs.writeFileSync("src-tauri/Cargo.toml", cargoToml);
           }
 
-          // 4. Write tauri.conf.json (Using hyphenated productName to prevent Linux bundler bugs)
           const tauriConf = {
             "$schema": "https://schema.tauri.app/config/2",
             "productName": "Hunbatz-Studio",
@@ -125,12 +121,10 @@ jobs:
           };
           fs.writeFileSync("src-tauri/tauri.conf.json", JSON.stringify(tauriConf, null, 2));
 
-          // 5. Write Rust entry points
           fs.writeFileSync("src-tauri/build.rs", "fn main() { tauri_build::build() }\n");
           fs.writeFileSync("src-tauri/src/lib.rs", "#[cfg_attr(mobile, tauri::mobile_entry_point)]\npub fn run() {\n  tauri::Builder::default().run(tauri::generate_context!()).expect(\"error while running tauri application\");\n}\n");
           fs.writeFileSync("src-tauri/src/main.rs", "#![cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")]\nfn main() {\n  hunbatz_artwork_studio_lib::run();\n}\n");
 
-          // 6. Generate 512x512 Base Icon
           const w = 512, h = 512;
           const raw = Buffer.alloc(h * (1 + w * 4));
           for (let y = 0; y < h; y++) {
@@ -355,7 +349,7 @@ jobs:
           if-no-files-found: warn
 
   # ==========================================
-  # 3. iOS & iPadOS BUILD (.app / .ipa)
+  # 3. iOS & iPadOS BUILD (.ipa)
   # ==========================================
   build-ios:
     runs-on: macos-latest
@@ -491,15 +485,19 @@ jobs:
 
       - name: Initialize & Build iOS / iPadOS Unsigned IPA
         run: |
+          bun run build
           bun x tauri ios init
-          xcodebuild -project src-tauri/gen/apple/Hunbatz-Studio.xcodeproj \
-            -scheme Hunbatz-Studio_iOS \
+          PROJECT_PATH=$(find src-tauri/gen/apple -maxdepth 1 -name "*.xcodeproj" | head -n 1)
+          SCHEME_NAME=$(xcodebuild -project "$PROJECT_PATH" -list | awk '/Schemes:/{flag=1;next} flag && NF {print $1; exit}')
+          echo "Using Project: $PROJECT_PATH and Scheme: $SCHEME_NAME"
+          xcodebuild -project "$PROJECT_PATH" \
+            -scheme "$SCHEME_NAME" \
             -sdk iphoneos \
             -configuration Release \
-            archive -archivePath $PWD/build/Hunbatz.xcarchive \
+            archive -archivePath "$PWD/build/Hunbatz.xcarchive" \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
           mkdir -p Payload
-          cp -r $PWD/build/Hunbatz.xcarchive/Products/Applications/*.app Payload/
+          cp -r "$PWD/build/Hunbatz.xcarchive/Products/Applications/"*.app Payload/
           zip -r Hunbatz-Studio-iOS-Unsigned.ipa Payload
 
       - name: Upload iOS IPA Artifact
@@ -514,7 +512,7 @@ jobs:
   # ==========================================
   publish-release:
     needs: [build-desktop, build-android, build-ios]
-    if: always() && (needs.build-desktop.result == 'success' || needs.build-android.result == 'success')
+    if: always() && (needs.build-desktop.result == 'success' || needs.build-android.result == 'success' || needs.build-ios.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Download All Built Artifacts
