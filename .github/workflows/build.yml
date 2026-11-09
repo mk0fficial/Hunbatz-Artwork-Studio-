@@ -125,7 +125,7 @@ jobs:
             src-tauri/target/release/bundle/appimage/*.tar.gz
           if-no-files-found: ignore
 
-  publish-android:
+ publish-android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
