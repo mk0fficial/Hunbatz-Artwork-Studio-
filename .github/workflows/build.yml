@@ -106,7 +106,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Hunbatz Studio v__VERSION__"
-          releaseBody: "Automated desktop installers (.exe, .msi, .dmg, .deb, .rpm, .appImage)"
+          releaseBody: "Automated desktop installers (.exe, .msi, .dmg, .deb, .rpm, .AppImage)"
           releaseDraft: false
           prerelease: false
 
@@ -120,12 +120,12 @@ jobs:
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
-            src-tauri/target/release/bundle/appimage/*.appImage
+            src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/appimage/*.appimage
             src-tauri/target/release/bundle/appimage/*.tar.gz
           if-no-files-found: ignore
 
- publish-android:
+  publish-android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
