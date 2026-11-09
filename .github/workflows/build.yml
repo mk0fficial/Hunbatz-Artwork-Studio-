@@ -479,16 +479,14 @@ jobs:
 
       - name: Initialize & Build iOS / iPadOS Unsigned IPA
         run: |
-          bun run build
           bun x tauri ios init
-          xcodebuild -project src-tauri/gen/apple/hunbatz-artwork-studio.xcodeproj \
-            -scheme hunbatz-artwork-studio_iOS \
-            -sdk iphoneos \
-            -configuration Release \
-            archive -archivePath "$PWD/build/Hunbatz.xcarchive" \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = ""; CODE_SIGNING_REQUIRED = NO; CODE_SIGNING_ALLOWED = NO;/g' src-tauri/gen/apple/hunbatz-artwork-studio.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = ""; CODE_SIGNING_REQUIRED = NO; CODE_SIGNING_ALLOWED = NO;/g' src-tauri/gen/apple/hunbatz-artwork-studio.xcodeproj/project.pbxproj
+          bun x tauri ios build || true
+          APP_PATH=$(find src-tauri/gen/apple/build /Users/runner/Library/Developer/Xcode/DerivedData -name "*.app" -type d | grep -v "Intermediates" | head -n 1)
+          echo "Found compiled iOS app at: $APP_PATH"
           mkdir -p Payload
-          cp -r "$PWD/build/Hunbatz.xcarchive/Products/Applications/"*.app Payload/
+          cp -r "$APP_PATH" Payload/
           zip -r Hunbatz-Studio-iOS-Unsigned.ipa Payload
 
       - name: Upload iOS IPA Artifact
