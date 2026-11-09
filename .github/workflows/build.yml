@@ -1,16 +1,12 @@
-   name: "Build Desktop + Android"
+name: "Build Desktop + Android"
 
-   on:
-     workflow_dispatch:
-     push:
-       tags: ['v*']
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
 
 permissions:
   contents: write
-
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   desktop:
