@@ -168,17 +168,25 @@ jobs:
       - name: Build Desktop Binaries
         run: bun x tauri build
 
+      - name: Collect Desktop Installers into Flat Directory
+        shell: bash
+        run: |
+          mkdir -p dist-desktop
+          find src-tauri/target/release/bundle -type f \( \
+            -name "*.exe" -o \
+            -name "*.msi" -o \
+            -name "*.dmg" -o \
+            -name "*.deb" -o \
+            -name "*.rpm" -o \
+            -name "*.AppImage" \
+          \) -exec cp {} dist-desktop/ \;
+          ls -la dist-desktop/
+
       - name: Upload Desktop Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os_name }}
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/rpm/*.rpm
-            src-tauri/target/release/bundle/appimage/*.AppImage
+          path: dist-desktop/*
           if-no-files-found: warn
 
   # ==========================================
@@ -335,7 +343,7 @@ jobs:
       - name: Prepare APK for Download
         run: |
           mkdir -p dist-apk
-          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} dist-apk/ \;
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec cp {} dist-apk/Hunbatz-Studio-Android.apk \;
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
@@ -510,8 +518,11 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: List Collected Files
-        run: ls -la release-assets
+      - name: Flatten All Downloaded Files into Single Release Folder
+        run: |
+          mkdir -p final-release
+          find release-assets -type f -exec cp {} final-release/ \;
+          ls -lh final-release/
 
       - name: Create & Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -523,4 +534,4 @@ jobs:
           body: "Automated builds for Windows (.exe, .msi), Linux (.deb, .rpm, .AppImage), macOS (.dmg), Android (.apk), and iOS/iPadOS (.ipa)."
           draft: false
           prerelease: false
-          files: release-assets/*
+          files: final-release/*
