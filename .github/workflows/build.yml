@@ -33,7 +33,7 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
 
       - name: Install project dependencies
         run: bun install
@@ -106,7 +106,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Hunbatz Studio v__VERSION__"
-          releaseBody: "Automated desktop installers (.exe, .msi, .dmg, .deb, .rpm, .AppImage)"
+          releaseBody: "Automated desktop installers (.exe, .msi, .dmg, .deb, .rpm, .appimage)"
           releaseDraft: false
           prerelease: false
 
@@ -120,7 +120,8 @@ jobs:
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
-            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.appimage
+            src-tauri/target/release/bundle/appimage/*.tar.gz
           if-no-files-found: ignore
 
   publish-android:
