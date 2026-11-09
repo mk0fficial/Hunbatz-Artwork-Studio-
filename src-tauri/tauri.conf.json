@@ -1,93 +1,91 @@
 - name: Bootstrap Tauri files, Config, and Icon
         run: |
           bun -e '
-          const fs = require("fs");
-          const zlib = require("zlib");
+            const fs = require("fs");
+            const zlib = require("zlib");
 
-          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-          pkg.scripts = pkg.scripts || {};
-          pkg.scripts.tauri = "tauri";
-          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            pkg.scripts = pkg.scripts || {};
+            pkg.scripts.tauri = "tauri";
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
 
-          fs.mkdirSync("src-tauri/src", { recursive: true });
-          fs.writeFileSync("src-tauri/build.rs", "fn main() { tauri_build::build() }\n");
-          fs.writeFileSync("src-tauri/src/lib.rs", "#[cfg_attr(mobile, tauri::mobile_entry_point)]\npub fn run() {\n  tauri::Builder::default().run(tauri::generate_context!()).expect(\"error while running tauri application\");\n}\n");
-          fs.writeFileSync("src-tauri/src/main.rs", "#![cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")]\nfn main() {\n  hunbatz_artwork_studio_lib::run();\n}\n");
+            fs.mkdirSync("src-tauri/src", { recursive: true });
+            fs.writeFileSync("src-tauri/build.rs", "fn main() { tauri_build::build() }\\n");
+            fs.writeFileSync("src-tauri/src/lib.rs", "#[cfg_attr(mobile, tauri::mobile_entry_point)]\\npub fn run() {\\n  tauri::Builder::default().run(tauri::generate_context!()).expect(\"error while running tauri application\");\\n}\\n");
+            fs.writeFileSync("src-tauri/src/main.rs", "#![cfg_attr(not(debug_assertions), windows_subsystem = \"windows\")]\\nfn main() {\\n  hunbatz_artwork_studio_lib::run();\\n}\\n");
 
-          // Ensure tauri.conf.json is correctly placed inside src-tauri/
-          const tauriConfig = {
-            "$schema": "https://schema.tauri.app/config/2",
-            "productName": "hunbatz-studio",
-            "version": "1.0.0",
-            "identifier": "com.mk0fficial.hunbatzartworkstudio",
-            "build": {
-              "beforeDevCommand": "bun run dev",
-              "beforeBuildCommand": "bun run build",
-              "devUrl": "http://localhost:3000",
-              "frontendDist": "../dist"
-            },
-            "app": {
-              "windows": [
-                {
-                  "title": "Hunbatz Studio",
-                  "width": 1600,
-                  "height": 1200
-                }
-              ]
-            },
-            "bundle": {
-              "active": true,
-              "targets": "all",
-              "icon": [
-                "icons/32x32.png",
-                "icons/128x128.png",
-                "icons/128x128@2x.png",
-                "icons/icon.icns",
-                "icons/icon.ico"
-              ]
+            const tauriConfig = {
+              "$schema": "https://schema.tauri.app/config/2",
+              "productName": "hunbatz-studio",
+              "version": "1.0.0",
+              "identifier": "com.mk0fficial.hunbatzartworkstudio",
+              "build": {
+                "beforeDevCommand": "bun run dev",
+                "beforeBuildCommand": "bun run build",
+                "devUrl": "http://localhost:3000",
+                "frontendDist": "../dist"
+              },
+              "app": {
+                "windows": [
+                  {
+                    "title": "Hunbatz Studio",
+                    "width": 1600,
+                    "height": 1200
+                  }
+                ]
+              },
+              "bundle": {
+                "active": true,
+                "targets": "all",
+                "icon": [
+                  "icons/32x32.png",
+                  "icons/128x128.png",
+                  "icons/128x128@2x.png",
+                  "icons/icon.icns",
+                  "icons/icon.ico"
+                ]
+              }
+            };
+            fs.writeFileSync("src-tauri/tauri.conf.json", JSON.stringify(tauriConfig, null, 2));
+
+            const w = 512, h = 512;
+            const raw = Buffer.alloc(h * (1 + w * 4));
+            for (let y = 0; y < h; y++) {
+              const rowStart = y * (1 + w * 4);
+              raw[rowStart] = 0;
+              for (let x = 0; x < w; x++) {
+                const p = rowStart + 1 + x * 4;
+                raw[p] = 22; raw[p+1] = 68; raw[p+2] = 53; raw[p+3] = 255;
+              }
             }
-          };
-          fs.writeFileSync("src-tauri/tauri.conf.json", JSON.stringify(tauriConfig, null, 2));
-
-          // Generate icon...
-          const w = 512, h = 512;
-          const raw = Buffer.alloc(h * (1 + w * 4));
-          for (let y = 0; y < h; y++) {
-            const rowStart = y * (1 + w * 4);
-            raw[rowStart] = 0;
-            for (let x = 0; x < w; x++) {
-              const p = rowStart + 1 + x * 4;
-              raw[p] = 22; raw[p+1] = 68; raw[p+2] = 53; raw[p+3] = 255;
+            const crcTable = new Uint32Array(256);
+            for (let n = 0; n < 256; n++) {
+              let c = n;
+              for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+              crcTable[n] = c;
             }
-          }
-          const crcTable = new Uint32Array(256);
-          for (let n = 0; n < 256; n++) {
-            let c = n;
-            for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
-            crcTable[n] = c;
-          }
-          function crc32(buf) {
-            let c = 0xffffffff;
-            for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
-            return (c ^ 0xffffffff) >>> 0;
-          }
-          function chunk(type, data) {
-            const b = Buffer.alloc(12 + data.length);
-            b.writeUInt32BE(data.length, 0);
-            b.write(type, 4, 4, "ascii");
-            data.copy(b, 8);
-            b.writeUInt32BE(crc32(b.slice(4, 8 + data.length)), 8 + data.length);
-            return b;
-          }
-          const ihdr = Buffer.alloc(13);
-          ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
-          ihdr[8] = 8; ihdr[9] = 6;
-          const png = Buffer.concat([
-            Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]),
-            chunk("IHDR", ihdr),
-            chunk("IDAT", zlib.deflateSync(raw)),
-            chunk("IEND", Buffer.alloc(0))
-          ]);
-          fs.writeFileSync("app-icon.png", png);
+            function crc32(buf) {
+              let c = 0xffffffff;
+              for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+              return (c ^ 0xffffffff) >>> 0;
+            }
+            function chunk(type, data) {
+              const b = Buffer.alloc(12 + data.length);
+              b.writeUInt32BE(data.length, 0);
+              b.write(type, 4, 4, "ascii");
+              data.copy(b, 8);
+              b.writeUInt32BE(crc32(b.slice(4, 8 + data.length)), 8 + data.length);
+              return b;
+            }
+            const ihdr = Buffer.alloc(13);
+            ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+            ihdr[8] = 8; ihdr[9] = 6;
+            const png = Buffer.concat([
+              Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]),
+              chunk("IHDR", ihdr),
+              chunk("IDAT", zlib.deflateSync(raw)),
+              chunk("IEND", Buffer.alloc(0))
+            ]);
+            fs.writeFileSync("app-icon.png", png);
           '
           bun x tauri icon app-icon.png
