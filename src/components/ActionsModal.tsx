@@ -30,6 +30,7 @@ import { DrawingGuideConfig } from '../types/canvas';
 import { MayanCornerBrackets } from './MayanDecorations';
 
 export type DeviceMode = 'auto' | 'pc' | 'tablet' | 'phone';
+export type RamProfile = 'low' | 'medium' | 'power';
 
 interface ActionsModalProps {
   canvasWidth: number;
@@ -72,6 +73,8 @@ interface ActionsModalProps {
   onResetUiScale?: () => void;
   hwAcceleration?: boolean;
   onToggleHwAcceleration?: () => void;
+  ramProfile?: RamProfile;
+  onChangeRamProfile?: (profile: RamProfile) => void;
 }
 
 type ActionTab = 'add' | 'canvas' | 'share' | 'video' | 'prefs' | 'help';
@@ -117,6 +120,8 @@ export const ActionsModal: React.FC<ActionsModalProps> = ({
   onResetUiScale,
   hwAcceleration = true,
   onToggleHwAcceleration,
+  ramProfile = 'medium',
+  onChangeRamProfile,
 }) => {
   const [activeTab, setActiveTab] = useState<ActionTab>('add');
   const isDraggingCurveRef = React.useRef(false);
@@ -756,6 +761,70 @@ export const ActionsModal: React.FC<ActionsModalProps> = ({
               >
                 {hwAcceleration ? 'ACTIVE' : 'OFF'}
               </button>
+            </div>
+
+            {/* RAM & Memory Optimization Profile */}
+            <div className="p-2.5 rounded-xl bg-[#0c100f] border border-[#2c3532] flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-semibold text-[#e6c699]">RAM & Engine Profile</span>
+                  <span className="text-[10px] text-[#5fd3ad] block font-mono">
+                    Scale undo history & scratch memory buffers
+                  </span>
+                </div>
+                <span className="text-[9px] px-2 py-0.5 rounded bg-[#164435] text-[#5fd3ad] font-mono font-bold uppercase">
+                  {ramProfile === 'low' ? 'Low (~1 GB)' : ramProfile === 'power' ? 'Power (Max)' : 'Medium (~1.5–2 GB)'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-lg bg-black/40 border border-[#2c3532]">
+                {[
+                  {
+                    id: 'low' as const,
+                    title: 'Low',
+                    target: '~1 GB',
+                    desc: 'Able to draw fine, lightweight sketching. 10-step undo, aggressive scratch buffer disposal.',
+                  },
+                  {
+                    id: 'medium' as const,
+                    title: 'Medium',
+                    target: '~1.5–2 GB',
+                    desc: 'Balanced studio default for all devices. Stable drawing & 25-step undo history.',
+                  },
+                  {
+                    id: 'power' as const,
+                    title: 'Power',
+                    target: 'Max / Adapt',
+                    desc: 'Breaks limitations and runs smooth at any point adapting to intensity. 60-step undo.',
+                  },
+                ].map((prof) => {
+                  const isSelected = ramProfile === prof.id;
+                  return (
+                    <button
+                      key={prof.id}
+                      onClick={() => onChangeRamProfile?.(prof.id)}
+                      className={`flex flex-col items-center justify-center py-2 px-1 rounded-md text-center transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#164435] text-[#5fd3ad] font-bold border border-[#5fd3ad]/70 shadow-sm'
+                          : 'text-[#e6c699]/70 hover:text-white hover:bg-white/5 border border-transparent'
+                      }`}
+                      title={prof.desc}
+                    >
+                      <span className="text-xs font-bold">{prof.title}</span>
+                      <span className="text-[9px] opacity-75 font-mono">{prof.target}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="text-[9.5px] text-[#9e9484] leading-relaxed px-1">
+                {ramProfile === 'low' &&
+                  '• Low Mode: Optimized for ~1GB RAM devices. Capped to 10 undo steps with immediate offscreen scratch buffer cleanup after every stroke.'}
+                {ramProfile === 'medium' &&
+                  '• Medium Mode: Stable across all devices (~1.5–2GB RAM). 25-step undo history and balanced scratch buffer caching.'}
+                {ramProfile === 'power' &&
+                  '• Power Mode: Workstation performance. Breaks limitations, keeps unthrottled scratch buffers, and allows 60-step undo history adapting to heavy workloads.'}
+              </p>
             </div>
           </div>
         )}

@@ -262,6 +262,8 @@ export function universalToBrush(u: UniversalBrushPreset): Brush {
     },
   });
 
+  (hydrated as any).size = u.baseSize;
+  (hydrated as any).baseSize = u.baseSize;
   (hydrated as any).shapeTextureUrl = u.shapeTextureUrl;
   (hydrated as any).shapeTextureUrls = u.shapeTextureUrls;
   (hydrated as any).grainTextureUrl = u.grainTextureUrl;

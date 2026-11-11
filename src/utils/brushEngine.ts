@@ -1947,3 +1947,63 @@ export function renderSmudgeSegment(
 ): void {
   renderKritaColorSmudgeSegment(ctx, p1, p2, brush, size, opacity, undefined, 0);
 }
+
+const swatchCache = new Map<string, string>();
+
+/**
+ * Generates an in-memory anti-aliased dynamic stroke swatch dataURL for a brush.
+ * Accurately conveys tip shape, texture, opacity, and pressure taper.
+ */
+export function generateBrushSwatch(
+  brush: Brush,
+  width: number = 96,
+  height: number = 32,
+  color: string = '#5fd3ad'
+): string {
+  if (!brush) return '';
+  const cacheKey = `${brush.id || 'b'}_${brush.name || 'unnamed'}_${brush.size || 24}_${brush.opacity ?? 1}_${brush.shape?.texture || brush.texture || 'default'}_${(brush as any).shapeTextureUrl || ''}_${width}x${height}_${color}`;
+  if (swatchCache.has(cacheKey)) {
+    return swatchCache.get(cacheKey)!;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  ctx.clearRect(0, 0, width, height);
+
+  // Generate undulating S-curve points with natural pressure taper
+  const pointsCount = 22;
+  const pts: { x: number; y: number; pressure: number; time: number }[] = [];
+  const padX = Math.max(6, width * 0.08);
+
+  for (let i = 0; i <= pointsCount; i++) {
+    const t = i / pointsCount;
+    const x = padX + t * (width - padX * 2);
+    const y = height * 0.5 + Math.sin(t * Math.PI * 2) * (height * 0.22);
+    const pressure = Math.sin(t * Math.PI) * 0.85 + 0.15;
+    pts.push({ x, y, pressure, time: Date.now() });
+  }
+
+  const rawBrushSize = Number(brush.size) || Number((brush as any).baseSize) || 24;
+  const effectiveSize = Math.max(3, Math.min(height * 0.65, rawBrushSize * 0.45));
+
+  for (let i = 0; i < pts.length - 1; i++) {
+    renderStrokeSegment(
+      ctx,
+      pts[i],
+      pts[i + 1],
+      brush,
+      color,
+      effectiveSize,
+      brush.opacity ?? 1.0,
+      false
+    );
+  }
+
+  const dataUrl = canvas.toDataURL('image/png');
+  swatchCache.set(cacheKey, dataUrl);
+  return dataUrl;
+}

@@ -725,8 +725,25 @@ export default function App() {
 
   const [currentColor, setCurrentColor] = useState<string>('#cf4a30');
   const [previousColor, setPreviousColor] = useState<string>('#fae17d');
-  const [brushSize, setBrushSize] = useState<number>(20);
+  const [brushSize, setBrushSize] = useState<number>(() => {
+    return Number(DEFAULT_BRUSHES[0]?.size) || 24;
+  });
   const [brushOpacity, setBrushOpacity] = useState<number>(1.0);
+
+  // RAM Management Profile ('low' ~1GB, 'medium' ~1.5-2GB, 'power' uncapped)
+  const [ramProfile, setRamProfile] = useState<'low' | 'medium' | 'power'>(() => {
+    try {
+      const saved = localStorage.getItem('hunbatz_ram_profile');
+      if (saved === 'low' || saved === 'medium' || saved === 'power') return saved;
+    } catch {}
+    return 'medium';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hunbatz_ram_profile', ramProfile);
+    } catch {}
+  }, [ramProfile]);
 
   // Pen Pressure & Touch Settings
   const [isPrefsTabActive, setIsPrefsTabActive] = useState<boolean>(false);
@@ -1006,7 +1023,7 @@ export default function App() {
     ],
   });
 
-  // Push full layer array snapshot to Undo history
+  // Push full layer array snapshot to Undo history (scaled by ramProfile)
   const handlePushHistory = useCallback(() => {
     if (layers.length === 0) return;
     const snapshot = {
@@ -1014,12 +1031,13 @@ export default function App() {
       activeLayerId,
     };
     historyStackRef.current.push(snapshot);
-    if (historyStackRef.current.length > 25) {
+    const maxHistory = ramProfile === 'low' ? 10 : ramProfile === 'power' ? 60 : 25;
+    while (historyStackRef.current.length > maxHistory) {
       historyStackRef.current.shift();
     }
     redoStackRef.current = [];
     setHistoryVersion((v) => v + 1);
-  }, [layers, activeLayerId]);
+  }, [layers, activeLayerId, ramProfile]);
 
   // Undo Handler
   const handleUndo = useCallback(() => {
@@ -1029,6 +1047,10 @@ export default function App() {
       activeLayerId,
     };
     redoStackRef.current.push(currentSnapshot);
+    const maxRedo = ramProfile === 'low' ? 5 : ramProfile === 'power' ? 30 : 15;
+    while (redoStackRef.current.length > maxRedo) {
+      redoStackRef.current.shift();
+    }
 
     const prevSnapshot = historyStackRef.current.pop()!;
     const restoredLayers = prevSnapshot.layersSnapshot.map(cloneLayerSnapshot);
@@ -1045,7 +1067,7 @@ export default function App() {
 
     setHistoryVersion((v) => v + 1);
     showToast('Undo');
-  }, [layers, activeLayerId, showToast]);
+  }, [layers, activeLayerId, ramProfile, showToast]);
 
   // Redo Handler
   const handleRedo = useCallback(() => {
@@ -1055,6 +1077,10 @@ export default function App() {
       activeLayerId,
     };
     historyStackRef.current.push(currentSnapshot);
+    const maxHistory = ramProfile === 'low' ? 10 : ramProfile === 'power' ? 60 : 25;
+    while (historyStackRef.current.length > maxHistory) {
+      historyStackRef.current.shift();
+    }
 
     const nextSnapshot = redoStackRef.current.pop()!;
     const restoredLayers = nextSnapshot.layersSnapshot.map(cloneLayerSnapshot);
@@ -1303,14 +1329,27 @@ export default function App() {
   const [showBrushCursor, setShowBrushCursor] = useState(true);
   const [zoomScale, setZoomScale] = useState(1);
 
-  // Select Brush & Track Recently Used Brushes
+  // Select Brush & Track Recently Used Brushes (syncing brushSize)
   const handleSelectBrushWithRecent = useCallback((brush: Brush) => {
+    const targetSize = Number(brush.size) || Number((brush as any).baseSize) || 24;
     setActiveBrush(brush);
+    setBrushSize(targetSize);
     setRecentBrushIds((prev) => {
       const filtered = prev.filter((id) => id !== brush.id);
       return [brush.id, ...filtered].slice(0, 18);
     });
   }, []);
+
+  // Low RAM mode: prune inactive artwork layers from memory cache
+  useEffect(() => {
+    if (ramProfile === 'low' && activeArtwork) {
+      for (const key of Array.from(artworkLayersCacheRef.current.keys())) {
+        if (key !== activeArtwork.id) {
+          artworkLayersCacheRef.current.delete(key);
+        }
+      }
+    }
+  }, [ramProfile, activeArtwork]);
 
   // Initialize Layers from current artwork without overwriting rich .HBATZ or cached layers
   useEffect(() => {
@@ -2137,10 +2176,18 @@ export default function App() {
             setIsColorStudioOpen((prev) => !prev);
             break;
           case '[':
-            setBrushSize((s) => Math.max(1, s - 5));
+            setBrushSize((s) => {
+              const next = Math.max(1, Math.min(400, s - 5));
+              setActiveBrush((prev) => ({ ...prev, size: next, baseSize: next }));
+              return next;
+            });
             break;
           case ']':
-            setBrushSize((s) => Math.min(100, s + 5));
+            setBrushSize((s) => {
+              const next = Math.max(1, Math.min(400, s + 5));
+              setActiveBrush((prev) => ({ ...prev, size: next, baseSize: next }));
+              return next;
+            });
             break;
           case 'tab':
             e.preventDefault();
@@ -3762,6 +3809,7 @@ export default function App() {
             onCloseSmartLayerEdit={() => setEditingSmartLayerId(null)}
             editingSmartFilter={editingSmartFilter}
             onClearEditingSmartFilter={() => setEditingSmartFilter(null)}
+            ramProfile={ramProfile}
           />
 
           {/* PHOTOPEA-PARITY SHARP TRIANGULAR / POLYGON CUTOUT STUDIO BAR */}
@@ -3993,7 +4041,14 @@ export default function App() {
               isEyedropperActive={isEyedropperActive}
               canUndo={historyStackRef.current.length > 0}
               canRedo={redoStackRef.current.length > 0}
-              onChangeSize={setBrushSize}
+              onChangeSize={(newSize) => {
+                setBrushSize(newSize);
+                setActiveBrush((prev) => ({
+                  ...prev,
+                  size: newSize,
+                  baseSize: newSize,
+                }));
+              }}
               onChangeOpacity={setBrushOpacity}
               onToggleEyedropper={() => setIsEyedropperActive(!isEyedropperActive)}
               onUndo={handleUndo}
@@ -4154,6 +4209,8 @@ export default function App() {
                 setBrushes(updated);
               }}
               onUpdateBrush={(updated) => {
+                const targetSize = Number(updated.size) || Number((updated as any).baseSize) || 24;
+                setBrushSize(targetSize);
                 setBrushes((prev) => {
                   const exists = prev.some((b) => b.id === updated.id);
                   if (exists) {
@@ -4269,6 +4326,11 @@ export default function App() {
                     showToast(next ? 'Hardware canvas acceleration enabled' : 'Hardware canvas acceleration disabled');
                     return next;
                   });
+                }}
+                ramProfile={ramProfile}
+                onChangeRamProfile={(prof) => {
+                  setRamProfile(prof);
+                  showToast(`RAM Engine Profile set to ${prof.toUpperCase()}`);
                 }}
                 onClose={() => {
                   setIsActionsOpen(false);
@@ -5142,10 +5204,14 @@ export default function App() {
               brush={activeBrush}
               allBrushes={brushes}
               onSelectPreset={(b) => {
+                const targetSize = Number(b.size) || Number((b as any).baseSize) || 24;
+                setBrushSize(targetSize);
                 setActiveBrush(b);
               }}
               onSave={(updated) => {
                 const asBrush = universalToBrush(updated);
+                asBrush.size = updated.baseSize;
+                (asBrush as any).baseSize = updated.baseSize;
                 setBrushes((prev) => {
                   const exists = prev.some((b) => b.id === asBrush.id);
                   if (exists) {
@@ -5155,11 +5221,14 @@ export default function App() {
                   }
                 });
                 saveLocalBrush(asBrush, asBrush.category || 'Inking').catch(() => {});
+                setBrushSize(updated.baseSize);
                 setActiveBrush(asBrush);
                 setIsBrushStudioOpen(false);
                 showToast(`Saved brush: ${asBrush.name}`);
               }}
               onUpdateBrush={(updated) => {
+                const targetSize = Number(updated.size) || Number((updated as any).baseSize) || 24;
+                setBrushSize(targetSize);
                 setBrushes((prev) => {
                   const exists = prev.some((b) => b.id === updated.id);
                   if (exists) {

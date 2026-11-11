@@ -41,6 +41,7 @@ import {
 import {
   renderStrokeSegment,
   onKritaTipTextureLoaded,
+  generateBrushSwatch,
 } from '../utils/brushEngine';
 import { importBrushFiles } from '../utils/brushImporter';
 import { parseBrushArchiveOrBinary } from '../utils/brushParsers';
@@ -80,6 +81,9 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
 }) => {
   const validBrushes = brushes.length > 0 ? brushes : FACTORY_BRUSH_DEFAULTS.filter((b) => b.category === 'Inking');
   const activeValidBrushes = validBrushes;
+  const currentBrush: Brush =
+    (activeBrush && activeBrush.id ? activeBrush : validBrushes[0] || FACTORY_BRUSH_DEFAULTS[0]) ||
+    ({ id: 'fallback', name: 'Inking Pen', category: 'Inking', size: 24, opacity: 1 } as Brush);
 
   const [folders, setFolders] = useState<string[]>(() => {
     const loaded = loadBrushFolders();
@@ -97,11 +101,12 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
     return combined.length > 0 ? combined : ['Inking'];
   });
 
-  const [selectedCategory, setSelectedCategory] = useState<BrushCategory>(
-    activeBrush.category && folders.includes(activeBrush.category)
-      ? activeBrush.category
-      : folders[0] || 'Inking'
-  );
+  const [selectedCategory, setSelectedCategory] = useState<BrushCategory>(() => {
+    if (currentBrush.category && folders.includes(currentBrush.category)) {
+      return currentBrush.category;
+    }
+    return folders[0] || 'Inking';
+  });
 
   const [isSyncingAll, setIsSyncingAll] = useState(false);
 
@@ -196,7 +201,7 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
         if (onBatchUpdateBrushes) {
           onBatchUpdateBrushes(res.brushes);
         }
-        const match = res.brushes.find((b) => b.id === activeBrush.id);
+        const match = res.brushes.find((b) => b.id === currentBrush.id);
         if (!match) {
           const inCat = res.brushes.find((b) => b.category === selectedCategory);
           onSelectBrush(inCat || res.brushes[0]);
@@ -242,8 +247,8 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
         if (b.category === trimmed) onUpdateBrush(b);
       });
     }
-    if (activeBrush.category === oldName) {
-      onSelectBrush({ ...activeBrush, category: trimmed });
+    if (currentBrush.category === oldName) {
+      onSelectBrush({ ...currentBrush, category: trimmed });
     }
     if (selectedCategory === oldName) {
       setSelectedCategory(trimmed);
@@ -286,7 +291,7 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
     if (selectedCategory === folderName) {
       setSelectedCategory(fallbackFolder);
     }
-    if (activeBrush.category === folderName && remainingBrushes[0]) {
+    if (currentBrush.category === folderName && remainingBrushes[0]) {
       onSelectBrush(remainingBrushes[0]);
     }
   };
@@ -372,7 +377,7 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
     if (onBatchUpdateBrushes) {
       onBatchUpdateBrushes(remaining);
     }
-    if (activeBrush.id === brushId && remaining.length > 0) {
+    if (currentBrush.id === brushId && remaining.length > 0) {
       const sameFolder = remaining.find((b) => b.category === selectedCategory);
       onSelectBrush(sameFolder || remaining[0]);
     }
@@ -507,14 +512,14 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
         ctx,
         pts[i],
         pts[i + 1],
-        activeBrush,
+        currentBrush,
         drawColor,
         previewSize,
         previewOpacity,
         false
       );
     }
-  }, [activeTool, activeBrush, currentColor, brushSize, brushOpacity, tipLoadTick]);
+  }, [activeTool, currentBrush, currentColor, brushSize, brushOpacity, tipLoadTick]);
 
   useEffect(() => {
     drawPreviewRibbon();
@@ -586,6 +591,16 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
         />
       );
     }
+    const swatch = generateBrushSwatch(b, 44, 44, '#5fd3ad');
+    if (swatch) {
+      return (
+        <img
+          src={swatch}
+          alt={b.name}
+          className="w-7 h-7 rounded-md object-contain shrink-0 shadow-sm border border-[#5fd3ad]/40 bg-black"
+        />
+      );
+    }
     const tex = b.shape?.texture || b.texture;
     if (tex === 'hard_triangle' || tex === 'calligraphy_nib') {
       return <Triangle size={12} className="text-[#5fd3ad] shrink-0" />;
@@ -639,7 +654,7 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
             <button
               onClick={() =>
                 handleExportBrushes(
-                  filteredBrushes.length > 0 ? filteredBrushes : [activeBrush],
+                  filteredBrushes.length > 0 ? filteredBrushes : [currentBrush],
                   selectedCategory || 'Hunbatz_Brushes'
                 )
               }
@@ -673,11 +688,11 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
         <div className="mx-3 my-2 p-2.5 mayan-well rounded-xl border border-[#2a302d] flex flex-col gap-1.5 shrink-0">
           <div className="flex items-center justify-between text-[11px]">
             <div className="flex items-center gap-1.5 font-medium text-white/90">
-              {renderShapeBadge(activeBrush)}
-              <span className="truncate max-w-[150px]">{activeBrush.name}</span>
+              {renderShapeBadge(currentBrush)}
+              <span className="truncate max-w-[150px]">{currentBrush.name}</span>
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#164435] text-[#5fd3ad] font-mono">
-                {Math.round((activeBrush.shape?.roundness ?? 1) * 100)}% Round •{' '}
-                {Math.round(activeBrush.shape?.rotation ?? 0)}°
+                {Math.round((currentBrush.shape?.roundness ?? 1) * 100)}% Round •{' '}
+                {Math.round(currentBrush.shape?.rotation ?? 0)}°
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -714,23 +729,23 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
               onMouseDown={(e) => e.stopPropagation()}
             >
               <BrushTipGizmo
-                angle={activeBrush.shape?.rotation ?? 0}
-                roundness={activeBrush.shape?.roundness ?? 1}
+                angle={currentBrush.shape?.rotation ?? 0}
+                roundness={currentBrush.shape?.roundness ?? 1}
                 size={82}
                 showNumericInputs={true}
                 onChange={(newAngle, newRoundness) => {
                   const updated: Brush = {
-                    ...activeBrush,
+                    ...currentBrush,
                     shape: {
-                      ...activeBrush.shape,
+                      ...currentBrush.shape,
                       texture:
-                        activeBrush.shape?.texture ||
-                        activeBrush.texture ||
+                        currentBrush.shape?.texture ||
+                        currentBrush.texture ||
                         'hard_round',
-                      scatter: activeBrush.shape?.scatter ?? 0,
-                      count: activeBrush.shape?.count ?? 1,
-                      countJitter: activeBrush.shape?.countJitter ?? 0,
-                      followStroke: activeBrush.shape?.followStroke ?? false,
+                      scatter: currentBrush.shape?.scatter ?? 0,
+                      count: currentBrush.shape?.count ?? 1,
+                      countJitter: currentBrush.shape?.countJitter ?? 0,
+                      followStroke: currentBrush.shape?.followStroke ?? false,
                       rotation: newAngle,
                       roundness: newRoundness,
                     },
@@ -1024,7 +1039,7 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
               </div>
             ) : (
               filteredBrushes.map((b) => {
-                const isActive = b.id === activeBrush.id;
+                const isActive = b.id === currentBrush.id;
                 const hasCustomTip = Boolean((b as any).shapeTextureUrl);
 
                 return (
@@ -1094,6 +1109,16 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
                     <p className="text-[10px] text-white/45 line-clamp-1 leading-snug">
                       {b.description}
                     </p>
+
+                    {/* Live Dynamic Stroke Swatch Preview */}
+                    <div className="w-full h-8 rounded-lg overflow-hidden bg-[#070a09] border border-[#232d29] flex items-center justify-center p-0.5 shadow-inner">
+                      <img
+                        src={generateBrushSwatch(b, 280, 36, isActive ? '#5fd3ad' : '#b89058')}
+                        alt={`${b.name} preview`}
+                        className="w-full h-full object-contain pointer-events-none"
+                        loading="lazy"
+                      />
+                    </div>
 
                     <div className="flex items-center justify-between text-[9px] text-white/35 pt-0.5 font-mono">
                       <span>

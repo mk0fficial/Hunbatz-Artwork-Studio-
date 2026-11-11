@@ -15,6 +15,7 @@ import {
   deleteCustomKritaPattern,
   getKritaPatternCanvas,
   onKritaTipTextureLoaded,
+  generateBrushSwatch,
 } from '../utils/brushEngine';
 import { parseBrushArchiveOrBinary } from '../utils/brushParsers';
 import {
@@ -30,7 +31,14 @@ import {
 } from '../utils/blendModes';
 import { BrushTipGizmo } from './BrushTipGizmo';
 import { PREDEFINED_BRUSH_TIPS, PredefinedBrushTip } from '../constants/predefinedBrushTips';
-import { saveLocalBrush, fetchLocalTextures, fetchLocalBrushTips } from '../services/localContentService';
+import {
+  saveLocalBrush,
+  fetchLocalTextures,
+  fetchLocalBrushTips,
+  subscribeToLocalTextures,
+  type LocalTextureDef,
+  type LocalTipDef,
+} from '../services/localContentService';
 import {
   Upload,
   Download,
@@ -49,6 +57,16 @@ import {
   ChevronRight,
   Eraser,
 } from 'lucide-react';
+
+export interface UnifiedTipDef {
+  id: string;
+  name: string;
+  url: string;
+  source: 'local_tip' | 'local_texture' | 'predefined';
+  badge: string;
+  width?: number;
+  height?: number;
+}
 
 interface BrushStudioModalProps {
   brush: UniversalBrushPreset | Brush;
@@ -207,8 +225,18 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
   const [tipSubTab, setTipSubTab] = useState<'auto' | 'predefined'>(() =>
     initialPreset.shapeTextureUrl ? 'predefined' : 'auto'
   );
-  const [tipCategoryFilter, setTipCategoryFilter] = useState<string>('All');
   const [tipSearchQuery, setTipSearchQuery] = useState<string>('');
+  const [allUnifiedTips, setAllUnifiedTips] = useState<UnifiedTipDef[]>(() => {
+    return PREDEFINED_BRUSH_TIPS.map((t) => ({
+      id: t.id,
+      name: t.name,
+      url: t.url,
+      source: 'predefined' as const,
+      badge: 'Stamp',
+      width: t.width,
+      height: t.height,
+    }));
+  });
 
   const [previewMode, setPreviewMode] = useState<ToolMode>('paint');
   const [previewColor, setPreviewColor] = useState('#111215');
@@ -287,19 +315,87 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
     setPatternPreviewUrls(urls);
   }, []);
 
+  const loadAllUnifiedTips = useCallback(async () => {
+    try {
+      const [localTips, localTextures] = await Promise.all([
+        fetchLocalBrushTips().catch(() => [] as LocalTipDef[]),
+        fetchLocalTextures().catch(() => [] as LocalTextureDef[]),
+      ]);
+
+      const seenUrls = new Set<string>();
+      const unified: UnifiedTipDef[] = [];
+
+      // 1. Local Brush Tips first (uploaded stamps & tips)
+      if (Array.isArray(localTips)) {
+        for (const t of localTips) {
+          if (t && t.url && !seenUrls.has(t.url)) {
+            seenUrls.add(t.url);
+            unified.push({
+              id: t.id || t.fileName || t.name,
+              name: t.name || t.fileName || 'Local Tip',
+              url: t.url,
+              source: 'local_tip',
+              badge: 'Local Tip',
+            });
+          }
+        }
+      }
+
+      // 2. Local Textures (surface patterns & canvas grains as tips)
+      if (Array.isArray(localTextures)) {
+        for (const tex of localTextures) {
+          if (tex && tex.url && !seenUrls.has(tex.url)) {
+            seenUrls.add(tex.url);
+            unified.push({
+              id: tex.id || tex.fileName || tex.name,
+              name: tex.name || tex.fileName || 'Local Texture',
+              url: tex.url,
+              source: 'local_texture',
+              badge: 'Texture',
+            });
+          }
+        }
+      }
+
+      // 3. Predefined Built-in Tips
+      for (const pt of PREDEFINED_BRUSH_TIPS) {
+        if (pt && pt.url && !seenUrls.has(pt.url)) {
+          seenUrls.add(pt.url);
+          unified.push({
+            id: pt.id,
+            name: pt.name,
+            url: pt.url,
+            source: 'predefined',
+            badge: 'Built-in',
+            width: pt.width,
+            height: pt.height,
+          });
+        }
+      }
+
+      setAllUnifiedTips(unified);
+    } catch (err) {
+      console.warn('Failed loading unified tips:', err);
+    }
+  }, []);
+
   useEffect(() => {
+    loadAllUnifiedTips();
     fetchLocalTextures().then(() => {
       refreshPatternPreviews();
     });
-    fetchLocalBrushTips().catch(() => {});
-    return onKritaTipTextureLoaded(() => {
+    const unsub = subscribeToLocalTextures(() => {
+      loadAllUnifiedTips();
+      refreshPatternPreviews();
+    });
+    const unregisterTipLoad = onKritaTipTextureLoaded(() => {
       setTipLoadTick((t) => t + 1);
     });
-  }, [refreshPatternPreviews]);
-
-  useEffect(() => {
-    refreshPatternPreviews();
-  }, [refreshPatternPreviews]);
+    return () => {
+      unsub();
+      unregisterTipLoad();
+    };
+  }, [loadAllUnifiedTips, refreshPatternPreviews]);
 
   // Render vertical seamless tiled preview in texture picker
   useEffect(() => {
@@ -549,6 +645,8 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
       onSave(updatedPreset);
     }
     const b = universalToBrush(updatedPreset);
+    b.size = draft.baseSize;
+    (b as any).baseSize = draft.baseSize;
     (b as any).sensors = sensors;
     (b as any).shareCurveAcrossSettings = shareCurveAcrossSettings;
     (b as any).blendMode = draft.blendMode || 'source-over';
@@ -899,6 +997,7 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                 .map((b) => {
                   const isCurrent = b.id === draft.id;
                   const iconUrl = (b as any).iconUrl || (b as any).shapeTextureUrl;
+                  const swatch = generateBrushSwatch(b, 64, 64, isCurrent ? '#5fd3ad' : '#b89058');
                   return (
                     <button
                       key={b.id}
@@ -915,16 +1014,15 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                           : 'border-[#2c3532] bg-[#141a18] hover:border-[#b89058]'
                       }`}
                     >
-                      {iconUrl ? (
-                        <img
-                          src={iconUrl}
-                          alt={b.name}
-                          className="w-full h-full object-cover rounded"
-                        />
-                      ) : (
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#5fd3ad] to-[#164435] border border-[#e6c699]/40" />
-                      )}
-                      <span className="absolute bottom-0 inset-x-0 bg-black/80 text-[8px] text-[#f2fbf7] truncate px-0.5 py-0.5 text-center">
+                      <img
+                        src={iconUrl || swatch}
+                        alt={b.name}
+                        onError={(e) => {
+                          if (swatch) (e.currentTarget as HTMLImageElement).src = swatch;
+                        }}
+                        className="w-full h-full object-cover rounded bg-black/60"
+                      />
+                      <span className="absolute bottom-0 inset-x-0 bg-black/85 text-[8px] text-[#f2fbf7] truncate px-0.5 py-0.5 text-center font-medium">
                         {b.name.replace(/^[a-z]+\)\s*/i, '')}
                       </span>
                     </button>
@@ -1241,20 +1339,20 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                         <span className="font-semibold text-white/95 truncate">
                           {(() => {
                             if (!draft.shapeTextureUrl) return 'Procedural Auto Tip (Circle/Chisel)';
-                            const matched = PREDEFINED_BRUSH_TIPS.find(
+                            const matched = allUnifiedTips.find(
                               (t) =>
                                 t.url === draft.shapeTextureUrl ||
                                 draft.shapeTextureUrl?.includes(t.id)
                             );
                             return matched
-                              ? `${matched.name} (${matched.width}×${matched.height})`
-                              : 'Custom Uploaded Stamp';
+                              ? `${matched.name} (${matched.badge || 'Stamp'})`
+                              : 'Custom Stamp';
                           })()}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-[10px] px-2 py-0.5 rounded bg-[#164435] text-[#5fd3ad] font-mono">
-                          127 Predefined Tips
+                          {allUnifiedTips.length} Tips & Textures
                         </span>
                         {draft.shapeTextureUrl && (
                           <button
@@ -1270,60 +1368,50 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Category Filter Pills & Search Input */}
-                    <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
-                      <div className="flex items-center gap-1 overflow-x-auto pb-0.5 text-[11px]">
-                        {[
-                          'All',
-                          'Splatter & Spray',
-                          'Bristles & Hatching',
-                          'Foliage & Nature',
-                          'Watercolor & Wash',
-                          'Texture & Grunge',
-                          'Shapes & Stamps',
-                        ].map((cat) => (
-                          <button
-                            key={cat}
-                            onClick={() => setTipCategoryFilter(cat)}
-                            className={`px-2 py-0.5 rounded font-medium whitespace-nowrap cursor-pointer transition ${
-                              tipCategoryFilter === cat
-                                ? 'bg-[#5fd3ad] text-black font-bold'
-                                : 'bg-[#141a18] text-[#9e9484] hover:text-[#e6c699] border border-[#2c3532]'
-                            }`}
-                          >
-                            {cat}
-                          </button>
-                        ))}
+                    {/* Unified Search Header (Categories Removed) */}
+                    <div className="flex items-center justify-between gap-3 bg-[#0c100e] px-3 py-1.5 rounded-xl border border-[#2c3532]">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="font-semibold text-[#e6c699]">Unified Library</span>
+                        <span className="text-[10px] text-[#9e9484]">
+                          All local brush tips, uploaded textures & built-in stamps
+                        </span>
                       </div>
 
-                      <div className="relative w-36 shrink-0">
+                      <div className="relative w-48 shrink-0">
                         <Search
                           size={11}
-                          className="absolute left-2 top-1/2 -translate-y-1/2 text-white/40"
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5fd3ad]"
                         />
                         <input
                           type="text"
-                          placeholder="Search tips..."
+                          placeholder="Search tips & textures..."
                           value={tipSearchQuery}
                           onChange={(e) => setTipSearchQuery(e.target.value)}
-                          className="w-full bg-[#0a0d0c] text-white text-[11px] pl-6 pr-2 py-1 rounded border border-[#2c3532] focus:outline-none focus:border-[#5fd3ad]"
+                          className="w-full bg-[#060807] text-white text-[11px] pl-6 pr-5 py-1 rounded-lg border border-[#2c3532] focus:outline-none focus:border-[#5fd3ad]"
                         />
+                        {tipSearchQuery && (
+                          <button
+                            onClick={() => setTipSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs cursor-pointer"
+                          >
+                            ×
+                          </button>
+                        )}
                       </div>
                     </div>
 
                     {/* Split: Left Thumbnails Grid + Right Tip Gizmo & Controls */}
                     <div className="flex gap-3 flex-1 min-h-0">
                       {/* Left: Dense Scrollable Grid of Tip Thumbnails */}
-                      <div className="flex-1 overflow-y-auto max-h-[300px] p-2 mayan-well rounded-xl border border-[#2c3532] grid grid-cols-6 sm:grid-cols-7 md:grid-cols-8 gap-1.5">
-                        {PREDEFINED_BRUSH_TIPS
+                      <div className="flex-1 overflow-y-auto max-h-[300px] p-2 mayan-well rounded-xl border border-[#2c3532] grid grid-cols-6 sm:grid-cols-7 md:grid-cols-8 gap-1.5 content-start">
+                        {allUnifiedTips
                           .filter((tip) => {
-                            if (tipCategoryFilter !== 'All' && tip.category !== tipCategoryFilter) {
-                              return false;
-                            }
                             if (tipSearchQuery.trim()) {
-                              return tip.name
-                                .toLowerCase()
-                                .includes(tipSearchQuery.toLowerCase());
+                              const q = tipSearchQuery.toLowerCase();
+                              return (
+                                tip.name.toLowerCase().includes(q) ||
+                                (tip.badge && tip.badge.toLowerCase().includes(q))
+                              );
                             }
                             return true;
                           })
@@ -1337,14 +1425,14 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
 
                             return (
                               <button
-                                key={tip.id}
+                                key={`${tip.source}_${tip.id}`}
                                 onClick={() => {
                                   updateField('shapeTextureUrl', tip.url);
                                   updateField('shapeTextureUrls', undefined);
                                   preloadKritaTexture(tip.url);
                                 }}
-                                title={`${tip.name} (${tip.category} • ${tip.width}×${tip.height})`}
-                                className={`relative flex flex-col items-center justify-center p-1 rounded-lg border cursor-pointer transition aspect-square overflow-hidden ${
+                                title={`${tip.name} (${tip.badge || 'Tip'}${tip.width ? ` • ${tip.width}×${tip.height}` : ''})`}
+                                className={`group relative flex flex-col items-center justify-center p-1 rounded-lg border cursor-pointer transition aspect-square overflow-hidden ${
                                   isSelected
                                     ? 'border-2 border-[#5fd3ad] bg-[#164435]/70 ring-2 ring-[#5fd3ad]/50 shadow-lg scale-95'
                                     : 'border-[#2c3532] bg-[#0c100e] hover:border-[#b89058] hover:bg-[#141a18]'
@@ -1356,6 +1444,19 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                                   loading="lazy"
                                   className="w-full h-full object-contain filter drop-shadow-sm"
                                 />
+                                {tip.badge && (
+                                  <span
+                                    className={`absolute top-0.5 left-0.5 px-1 py-0.2 rounded text-[7px] font-mono leading-none ${
+                                      tip.source === 'local_tip'
+                                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30'
+                                        : tip.source === 'local_texture'
+                                        ? 'bg-amber-950/80 text-amber-300 border border-amber-500/30'
+                                        : 'bg-black/60 text-white/50'
+                                    }`}
+                                  >
+                                    {tip.badge}
+                                  </span>
+                                )}
                                 {isSelected && (
                                   <div className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-[#5fd3ad]" />
                                 )}
@@ -1380,6 +1481,22 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                             }}
                             size={84}
                             showTiltButton={false}
+                          />
+                        </div>
+
+                        {/* Tip Diameter Slider */}
+                        <div className="space-y-1 pt-1 border-t border-[#2c3532]">
+                          <div className="flex justify-between text-[10px] text-[#9e9484]">
+                            <span className="font-semibold text-[#e6c699]">Base Diameter</span>
+                            <span className="text-[#5fd3ad] font-mono font-bold">{draft.baseSize} px</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={1}
+                            max={400}
+                            value={draft.baseSize}
+                            onChange={(e) => updateField('baseSize', parseInt(e.target.value, 10))}
+                            className="w-full accent-[#5fd3ad] cursor-pointer"
                           />
                         </div>
 

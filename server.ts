@@ -29,8 +29,9 @@ for (const dir of [LOCAL_CONTENT_DIR, BRUSHES_DIR, TEXTURES_DIR, TIPS_DIR, PROJE
   }
 }
 
-// Serve local content statically under /hunbatz-content
+// Serve local content statically under /hunbatz-content and /assets/brush_tips
 app.use('/hunbatz-content', express.static(LOCAL_CONTENT_DIR));
+app.use('/assets/brush_tips', express.static(TIPS_DIR));
 
 // 1. Status endpoint
 app.get('/api/local-content/status', (_req, res) => {

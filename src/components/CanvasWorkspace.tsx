@@ -167,6 +167,7 @@ interface CanvasWorkspaceProps {
   onCloseSmartLayerEdit?: () => void;
   editingSmartFilter?: { layerId: string; filterId: string; filter: SmartFilter } | null;
   onClearEditingSmartFilter?: () => void;
+  ramProfile?: 'low' | 'medium' | 'power';
 }
 
 function getTightAlphaBounds(
@@ -206,6 +207,31 @@ function getTightAlphaBounds(
     width: Math.max(16, tightW),
     height: Math.max(16, tightH),
   };
+}
+
+export function getEffectiveBrushSizePx(brushSize: number | undefined, activeBrush: Brush): number {
+  if (brushSize !== undefined && brushSize > 0) {
+    const percent = brushSize <= 100 ? brushSize : (brushSize / 400) * 100;
+    return Math.max(1, Math.round((percent / 100) * 400));
+  }
+  const rawFallback = Number(activeBrush.size) || Number((activeBrush as any).baseSize) || 24;
+  const percent = rawFallback <= 100 ? rawFallback : (rawFallback / 400) * 100;
+  return Math.max(1, Math.round((percent / 100) * 400));
+}
+
+export function isHexColorDark(hex: string): boolean {
+  if (!hex || !hex.startsWith('#')) return false;
+  const clean = hex.slice(1);
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16) || 0;
+    const g = parseInt(clean[1] + clean[1], 16) || 0;
+    const b = parseInt(clean[2] + clean[2], 16) || 0;
+    return (r * 0.299 + g * 0.587 + b * 0.114) < 128;
+  }
+  const r = parseInt(clean.slice(0, 2), 16) || 0;
+  const g = parseInt(clean.slice(2, 4), 16) || 0;
+  const b = parseInt(clean.slice(4, 6), 16) || 0;
+  return (r * 0.299 + g * 0.587 + b * 0.114) < 128;
 }
 
 function applyProcessedMask(
@@ -308,6 +334,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   onCloseSmartLayerEdit,
   editingSmartFilter,
   onClearEditingSmartFilter,
+  ramProfile = 'medium',
 }) => {
   // Container & Viewport Pan / Zoom state
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1046,7 +1073,9 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
       gBuffer.height = canvasHeight;
       const gCtx = gBuffer.getContext('2d')!;
 
-      const groupChildren = layers.filter((l) => l.parentId === group.id && l.visible);
+      const groupChildren = layers.filter(
+        (l) => (l.parentId === group.id || l.groupId === group.id) && l.visible
+      );
       for (let ci = 0; ci < groupChildren.length; ci++) {
         const cLayer = groupChildren[ci];
 
@@ -1102,7 +1131,10 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         continue;
       }
 
-      if (layer.parentId && layers.some((l) => l.id === layer.parentId && l.type === 'group')) {
+      if (
+        (layer.parentId || layer.groupId) &&
+        layers.some((l) => (l.id === layer.parentId || l.id === layer.groupId) && l.type === 'group')
+      ) {
         i++;
         continue;
       }
@@ -1762,13 +1794,14 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     lastStrokePointRef.current = pt;
     strokeStartPointRef.current = pt;
 
-    const isPaintingMask = activeMaskLayerId === activeLayerId && Boolean(activeLayer.mask);
+    const maskLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
+    const isPaintingMask = Boolean(maskLayer && maskLayer.mask);
     const activeSub =
       activeLayer.type === 'smart' && activeLayer.smartLayers
         ? activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) || activeLayer.smartLayers[0]
         : null;
-    const targetCanvas = isPaintingMask && activeLayer.mask
-      ? activeLayer.mask.canvas
+    const targetCanvas = isPaintingMask && maskLayer?.mask
+      ? maskLayer.mask.canvas
       : activeSub
       ? activeSub.canvas
       : activeLayer.canvas;
@@ -2325,23 +2358,26 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     const prevPt = currentStrokePoints.current[currentStrokePoints.current.length - 1];
     currentStrokePoints.current.push(newPt);
 
-    const isPaintingMask = activeMaskLayerId === activeLayerId && Boolean(activeLayer.mask);
+    const maskLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
+    const isPaintingMask = Boolean(maskLayer && maskLayer.mask);
     const activeSub =
       activeLayer.type === 'smart' && activeLayer.smartLayers
         ? activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) || activeLayer.smartLayers[0]
         : null;
-    const targetCtx = isPaintingMask && activeLayer.mask
-      ? activeLayer.mask.ctx
+    const targetCtx = isPaintingMask && maskLayer?.mask
+      ? maskLayer.mask.ctx
       : activeSub
       ? activeSub.ctx
       : activeLayer.ctx;
 
     const isEraser = activeTool === 'eraser';
     const drawColor = isPaintingMask
-      ? isEraser || currentColor.toLowerCase() === '#000000'
+      ? isEraser || currentColor.toLowerCase() === '#000000' || isHexColorDark(currentColor)
         ? '#000000'
         : '#ffffff'
       : currentColor;
+
+    const effectiveBrushSize = getEffectiveBrushSizePx(brushSize, activeBrush);
 
     if (activeTool === 'brush' || activeTool === 'eraser') {
       const bufferCanvas = getStrokeBuffer(canvasWidth, canvasHeight);
@@ -2358,7 +2394,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
           newPt,
           activeBrush,
           isEraser ? '#000000' : drawColor,
-          brushSize,
+          effectiveBrushSize,
           1.0,
           false
         );
@@ -2378,7 +2414,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
               m2,
               activeBrush,
               isEraser ? '#000000' : drawColor,
-              brushSize,
+              effectiveBrushSize,
               1.0,
               false
             );
@@ -2404,7 +2440,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     } else if (activeTool === 'smudge' && !isPaintingMask) {
       const prevStrokePt = lastStrokePointRef.current || prevPt;
       targetCtx.save();
-      renderSmudgeSegment(targetCtx, prevStrokePt, newPt, activeBrush, brushSize, brushOpacity);
+      renderSmudgeSegment(targetCtx, prevStrokePt, newPt, activeBrush, effectiveBrushSize, brushOpacity);
       targetCtx.restore();
     }
 
@@ -2622,13 +2658,14 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
           const backupCanvas = getStrokeBaseBackup(canvasWidth, canvasHeight);
 
           if (bufferCtx && backupCanvas) {
+            const tapSize = Math.max(1, brushSize || activeBrush.size || (activeBrush as any).baseSize || 20);
             renderStrokeSegment(
               bufferCtx,
               startPt,
               { ...startPt, x: startPt.x + 0.1, y: startPt.y + 0.1 },
               activeBrush,
               isEraser ? '#000000' : drawColor,
-              brushSize,
+              tapSize,
               1.0,
               false
             );
@@ -2651,11 +2688,12 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
           }
         }
 
+        const recordedSize = Math.max(1, brushSize || activeBrush.size || (activeBrush as any).baseSize || 20);
         onRecordStroke({
           tool: activeTool,
           brushId: activeBrush.id,
           color: currentColor,
-          size: brushSize,
+          size: recordedSize,
           opacity: brushOpacity,
           layerId: activeLayer.id,
           points: [...currentStrokePoints.current],
@@ -2702,6 +2740,20 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
       rafIdRef.current = null;
     }
     compositeLayers();
+
+    // Aggressive Low-RAM optimization: reclaim offscreen scratch buffers immediately
+    if (ramProfile === 'low') {
+      if (strokeBufferCanvasRef.current) {
+        strokeBufferCanvasRef.current.width = 0;
+        strokeBufferCanvasRef.current.height = 0;
+        strokeBufferCanvasRef.current = null;
+      }
+      if (strokeBaseBackupCanvasRef.current) {
+        strokeBaseBackupCanvasRef.current.width = 0;
+        strokeBaseBackupCanvasRef.current.height = 0;
+        strokeBaseBackupCanvasRef.current = null;
+      }
+    }
 
     if (e?.currentTarget && e?.pointerId !== undefined && e.currentTarget.hasPointerCapture?.(e.pointerId)) {
       try {
