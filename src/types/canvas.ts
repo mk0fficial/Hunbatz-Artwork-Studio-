@@ -534,8 +534,19 @@ export interface DualBrushConfig {
     | 'charcoal_grit'
     | 'stipple'
     | 'canvas_weave';
-  texture: BrushTexture | string;
-  blendMode: 'multiply' | 'mask' | 'subtract' | 'overlay' | 'darken';
+  shapeTextureUrl?: string;
+  texture?: BrushTexture | string;
+  blendMode:
+    | 'multiply'
+    | 'mask'
+    | 'subtract'
+    | 'overlay'
+    | 'darken'
+    | 'lighten'
+    | 'color-dodge'
+    | 'screen'
+    | 'linear-burn'
+    | string;
   size?: number; // base secondary pixel size (e.g. 1 to 200px)
   sizeRatio: number; // 0.1 to 3.0 (fraction of primary brush size)
   opacity?: number; // 0 to 1.0 (Opacity)

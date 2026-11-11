@@ -556,22 +556,41 @@ function applyDualBrushToDab(
       sCtx.stroke();
     }
   } else {
-    // 2. Fallback Texture library
-    const secTexture: string = String(dualBrush.texture || 'soft_round');
-    if (secTexture === 'hard_round') {
-      sCtx.beginPath();
-      sCtx.arc(0, 0, secRadius, 0, Math.PI * 2);
-      sCtx.fill();
-    } else if (secTexture === 'soft_round') {
-      const grad = sCtx.createRadialGradient(0, 0, 0, 0, 0, secRadius);
-      grad.addColorStop(0, 'rgba(255,255,255,1)');
-      grad.addColorStop(0.5, 'rgba(255,255,255,0.7)');
-      grad.addColorStop(1, 'rgba(255,255,255,0)');
-      sCtx.fillStyle = grad;
-      sCtx.beginPath();
-      sCtx.arc(0, 0, secRadius, 0, Math.PI * 2);
-      sCtx.fill();
-    } else if (secTexture === 'charcoal' || secTexture === 'chalk') {
+    // 2. Texture Library or Custom Tip/Texture Image
+    const customSecUrl =
+      dualBrush.shapeTextureUrl ||
+      (typeof dualBrush.texture === 'string' &&
+      (dualBrush.texture.startsWith('/') ||
+        dualBrush.texture.startsWith('http') ||
+        dualBrush.texture.startsWith('data:'))
+        ? dualBrush.texture
+        : null);
+    const customSecImg = customSecUrl ? preloadKritaTexture(customSecUrl) : null;
+
+    if (customSecImg && customSecImg.complete && customSecImg.naturalWidth > 0) {
+      sCtx.drawImage(
+        customSecImg,
+        -secRadius,
+        -secRadius,
+        secRadius * 2,
+        secRadius * 2
+      );
+    } else {
+      const secTexture: string = String(dualBrush.texture || 'soft_round');
+      if (secTexture === 'hard_round') {
+        sCtx.beginPath();
+        sCtx.arc(0, 0, secRadius, 0, Math.PI * 2);
+        sCtx.fill();
+      } else if (secTexture === 'soft_round') {
+        const grad = sCtx.createRadialGradient(0, 0, 0, 0, 0, secRadius);
+        grad.addColorStop(0, 'rgba(255,255,255,1)');
+        grad.addColorStop(0.5, 'rgba(255,255,255,0.7)');
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        sCtx.fillStyle = grad;
+        sCtx.beginPath();
+        sCtx.arc(0, 0, secRadius, 0, Math.PI * 2);
+        sCtx.fill();
+      } else if (secTexture === 'charcoal' || secTexture === 'chalk') {
       const count = Math.max(12, Math.round(secRadius * 2.5));
       for (let i = 0; i < count; i++) {
         const ang = Math.random() * Math.PI * 2;

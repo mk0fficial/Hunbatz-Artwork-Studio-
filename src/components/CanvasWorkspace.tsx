@@ -2632,33 +2632,34 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
 
       const activeLayer = layers.find((l) => l.id === activeLayerId);
       if (activeLayer) {
+        const maskLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
+        const isPaintingMask = Boolean(maskLayer && maskLayer.mask);
+        const activeSub =
+          activeLayer.type === 'smart' && activeLayer.smartLayers
+            ? activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) || activeLayer.smartLayers[0]
+            : null;
+        const targetCtx = isPaintingMask && maskLayer?.mask
+          ? maskLayer.mask.ctx
+          : activeSub
+          ? activeSub.ctx
+          : activeLayer.ctx;
+
+        const isEraser = activeTool === 'eraser';
+        const drawColor = isPaintingMask
+          ? isEraser || currentColor.toLowerCase() === '#000000' || isHexColorDark(currentColor)
+            ? '#000000'
+            : '#ffffff'
+          : currentColor;
+
         // If user made a stationary tap without moving (single stamp dot):
         if (!strokeMovedRef.current && strokeStartPointRef.current && (activeTool === 'brush' || activeTool === 'eraser')) {
           const startPt = strokeStartPointRef.current;
-          const isPaintingMask = activeMaskLayerId === activeLayerId && Boolean(activeLayer.mask);
-          const activeSub =
-            activeLayer.type === 'smart' && activeLayer.smartLayers
-              ? activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) || activeLayer.smartLayers[0]
-              : null;
-          const targetCtx = isPaintingMask && activeLayer.mask
-            ? activeLayer.mask.ctx
-            : activeSub
-            ? activeSub.ctx
-            : activeLayer.ctx;
-
-          const isEraser = activeTool === 'eraser';
-          const drawColor = isPaintingMask
-            ? isEraser || currentColor.toLowerCase() === '#000000'
-              ? '#000000'
-              : '#ffffff'
-            : currentColor;
-
           const bufferCanvas = getStrokeBuffer(canvasWidth, canvasHeight);
           const bufferCtx = bufferCanvas.getContext('2d');
           const backupCanvas = getStrokeBaseBackup(canvasWidth, canvasHeight);
 
           if (bufferCtx && backupCanvas) {
-            const tapSize = Math.max(1, brushSize || activeBrush.size || (activeBrush as any).baseSize || 20);
+            const tapSize = getEffectiveBrushSizePx(brushSize, activeBrush);
             renderStrokeSegment(
               bufferCtx,
               startPt,
@@ -2688,7 +2689,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
           }
         }
 
-        const recordedSize = Math.max(1, brushSize || activeBrush.size || (activeBrush as any).baseSize || 20);
+        const recordedSize = getEffectiveBrushSizePx(brushSize, activeBrush);
         onRecordStroke({
           tool: activeTool,
           brushId: activeBrush.id,
@@ -2701,15 +2702,15 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
 
         if (activeLayer.type === 'smart' && activeLayer.smartLayers) {
           renderSmartLayerCanvas(activeLayer, canvasWidth, canvasHeight);
-          const activeSub =
+          const activeSubLayer =
             activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) ||
             activeLayer.smartLayers[0];
-          if (activeSub) {
+          if (activeSubLayer) {
             const sThumb = document.createElement('canvas');
             sThumb.width = 64;
             sThumb.height = 64;
-            sThumb.getContext('2d')?.drawImage(activeSub.canvas, 0, 0, 64, 64);
-            activeSub.thumbnailUrl = sThumb.toDataURL();
+            sThumb.getContext('2d')?.drawImage(activeSubLayer.canvas, 0, 0, 64, 64);
+            activeSubLayer.thumbnailUrl = sThumb.toDataURL();
           }
         }
 
@@ -2719,12 +2720,12 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         thumbCanvas.getContext('2d')?.drawImage(activeLayer.canvas, 0, 0, 64, 64);
         activeLayer.thumbnailUrl = thumbCanvas.toDataURL();
 
-        if (activeMaskLayerId === activeLayer.id && activeLayer.mask) {
+        if (maskLayer && maskLayer.mask) {
           const mThumb = document.createElement('canvas');
           mThumb.width = 64;
           mThumb.height = 64;
-          mThumb.getContext('2d')?.drawImage(activeLayer.mask.canvas, 0, 0, 64, 64);
-          activeLayer.mask.thumbnailUrl = mThumb.toDataURL();
+          mThumb.getContext('2d')?.drawImage(maskLayer.mask.canvas, 0, 0, 64, 64);
+          maskLayer.mask.thumbnailUrl = mThumb.toDataURL();
         }
         onUpdateLayers([...layers]);
       }
@@ -4235,7 +4236,8 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
               canvas && canvas.width > 0
                 ? canvas.getBoundingClientRect().width / canvas.width
                 : zoom;
-            const cursorDiameterPx = brushSize * canvasDisplayScale;
+            const effectiveSizePx = getEffectiveBrushSizePx(brushSize, activeBrush);
+            const cursorDiameterPx = effectiveSizePx * canvasDisplayScale;
 
             const rawRoundness =
               activeBrush.shape?.roundness ?? (activeBrush as any).roundness ?? 1.0;
@@ -4283,7 +4285,8 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
             canvas && canvas.width > 0
               ? canvas.getBoundingClientRect().width / canvas.width
               : zoom;
-          const cursorDiameterPx = brushSize * canvasDisplayScale;
+          const effectiveSizePx = getEffectiveBrushSizePx(brushSize, activeBrush);
+          const cursorDiameterPx = effectiveSizePx * canvasDisplayScale;
           const rawRoundness =
             activeBrush.shape?.roundness ?? (activeBrush as any).roundness ?? 1.0;
           const roundness =
@@ -4313,7 +4316,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
                 </div>
                 <div className="bg-[#121418]/95 backdrop-blur-md border border-white/20 text-white font-mono font-bold text-xs px-3.5 py-1.5 rounded-full shadow-2xl flex items-center gap-2">
                   <span className="text-blue-400 font-semibold">Brush Size:</span>
-                  <span>{Math.round(brushSize)} px</span>
+                  <span>{Math.round(brushSize)}% ({effectiveSizePx} px)</span>
                 </div>
               </div>
             </div>
