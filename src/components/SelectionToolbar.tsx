@@ -50,6 +50,7 @@ interface SelectionToolbarProps {
   onChangeFeather: (val: number) => void;
   onFillSelection: () => void;
   onFillPattern?: (patternType: string, scale?: number, customDataUrl?: string) => void;
+  onMaskSelection?: () => void;
   onCopyPasteSelection: () => void;
   onCopyPng?: () => void;
   onClearSelection: () => void;
@@ -78,6 +79,7 @@ export const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
   onToggleInvert,
   onChangeFeather,
   onFillSelection,
+  onMaskSelection,
   onCopyPasteSelection,
   onClearSelection,
   onDeselect,
@@ -362,6 +364,18 @@ export const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
             <Copy size={13} />
             <span>Copy/Paste</span>
           </button>
+
+          {onMaskSelection && (
+            <button
+              disabled={!hasSelection}
+              onClick={onMaskSelection}
+              title="Convert Selection into Layer Mask (Reveals selection, masks rest)"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs mayan-btn-stone text-[#5fd3ad] hover:text-[#7ae8c4] disabled:opacity-30 cursor-pointer"
+            >
+              <Layers size={13} />
+              <span>Mask</span>
+            </button>
+          )}
 
           {onCopyPng && (
             <button

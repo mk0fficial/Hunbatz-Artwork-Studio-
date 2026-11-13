@@ -81,7 +81,7 @@ export const SidebarControls: React.FC<SidebarControlsProps> = ({
               position === 'left' ? (isCompact ? 'left-9' : 'left-12') : (isCompact ? 'right-9' : 'right-12')
             } top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg mayan-panel border border-[#b89058] text-[#e6c699] font-mayan font-bold text-xs shadow-2xl whitespace-nowrap animate-in fade-in duration-100`}
           >
-            Size: {Math.round(brushSize)}% ({Math.round((brushSize / 100) * 400)} px)
+            Size: {Math.round(brushSize)} px
           </div>
         )}
 
@@ -101,7 +101,7 @@ export const SidebarControls: React.FC<SidebarControlsProps> = ({
             onSizeAdjusting?.(false);
             e.currentTarget.releasePointerCapture(e.pointerId);
           }}
-          title={`Brush Size: ${Math.round(brushSize)}% (${Math.round((brushSize / 100) * 400)} px)`}
+          title={`Brush Size: ${Math.round(brushSize)} px`}
           className={`relative ${trackClass} mayan-well border-2 border-[#3a3229] rounded-full cursor-ns-resize shadow-2xl flex items-center justify-center p-1 overflow-hidden transition-all`}
         >
           {/* Fill Bar from bottom (glowing jade-to-gold gradient) */}

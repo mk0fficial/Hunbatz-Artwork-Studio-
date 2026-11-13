@@ -1,88 +1,158 @@
 @import "tailwindcss";
 
 :root {
-  --mayan-obsidian-bg: #141817;
-  --mayan-obsidian-well: #0b0e0d;
-  --mayan-stone-border: #2c3532;
-  --mayan-stone-border-gold: #b89058;
-  --mayan-jade-light: #5fd3ad;
-  --mayan-jade-mid: #2c7a60;
-  --mayan-jade-dark: #164435;
-  --mayan-gold-light: #e6c699;
-  --mayan-gold-mid: #b89058;
-  --mayan-gold-dark: #7a5c2d;
-  --mayan-terracotta: #4a211d;
-  --mayan-terracotta-border: #9e4b3e;
+  /* =========================================================================
+     HUNBATZ UNIFIED DESIGN SYSTEM TOKENS (GROUP MEGA-UPDATE ARCHITECTURE)
+     All core visual properties are centralized here for one-touch global skinning
+     ========================================================================= */
+
+  /* Typography Families */
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-data: 'JetBrains Mono', monospace;
+
+  /* Text & Label Hierarchy */
+  --text-primary: #f2fbf7;
+  --text-secondary: #e6c699;
+  --text-secondary-dim: rgba(230, 198, 153, 0.75);
+  --text-muted: #9e9484;
+  --text-gold: #b89058;
+  --text-gold-light: #e6c699;
+  --text-jade: #5fd3ad;
+  --text-jade-light: #7ae8c4;
+  --text-danger: #f87171;
+
+  /* Surfaces & Canvas Wells */
+  --ui-bg-base: #0b0e0d;
+  --ui-bg-workspace: #0e1110;
+  --ui-panel-bg: #141817;
+  --ui-panel-gradient: radial-gradient(circle at 50% 0%, #1f2624 0%, #141817 75%, #0d100f 100%);
+  --ui-well-bg: #0b0e0d;
+  --ui-well-border: #2a302d;
+  --ui-hover-bg: rgba(255, 255, 255, 0.06);
+  --ui-active-bg: #164435;
+
+  /* Structural Borders */
+  --ui-border-subtle: #2c3532;
+  --ui-border-mid: #3a4743;
+  --ui-border-gold: #b89058;
+  --ui-border-gold-subtle: #4a3a22;
+  --ui-border-jade: #5fd3ad;
+  --ui-border-jade-subtle: #2c7a60;
+
+  /* Accent Colors */
+  --ui-accent-jade: #5fd3ad;
+  --ui-accent-jade-mid: #2c7a60;
+  --ui-accent-jade-dark: #164435;
+  --ui-accent-jade-glow: rgba(95, 211, 173, 0.45);
+  --ui-accent-gold: #e6c699;
+  --ui-accent-gold-mid: #b89058;
+  --ui-accent-gold-dark: #7a5c2d;
+  --ui-terracotta: #4a211d;
+  --ui-terracotta-border: #9e4b3e;
+
+  /* Centralized Slider System Tokens */
+  --slider-track-bg: #0b0e0d;
+  --slider-track-border: #3a3229;
+  --slider-fill-start: #164435;
+  --slider-fill-mid: #2c7a60;
+  --slider-fill-end: #b89058;
+  --slider-thumb-bg: radial-gradient(circle at 35% 35%, #7ae8c4 0%, #297a5f 65%, #113a2c 100%);
+  --slider-thumb-border: #c8a262;
+  --slider-thumb-glow: rgba(95, 211, 173, 0.5);
+  --slider-thumb-size: 18px;
+
+  /* Legacy Compat Variables */
+  --mayan-obsidian-bg: var(--ui-panel-bg);
+  --mayan-obsidian-well: var(--ui-well-bg);
+  --mayan-stone-border: var(--ui-border-subtle);
+  --mayan-stone-border-gold: var(--ui-border-gold);
+  --mayan-jade-light: var(--ui-accent-jade);
+  --mayan-jade-mid: var(--ui-accent-jade-mid);
+  --mayan-jade-dark: var(--ui-accent-jade-dark);
+  --mayan-gold-light: var(--ui-accent-gold);
+  --mayan-gold-mid: var(--ui-accent-gold-mid);
+  --mayan-gold-dark: var(--ui-accent-gold-dark);
+  --mayan-terracotta: var(--ui-terracotta);
+  --mayan-terracotta-border: var(--ui-terracotta-border);
 }
 
 .font-mayan {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-display);
   letter-spacing: 0.08em;
+}
+
+.font-sans-ui {
+  font-family: var(--font-body);
+}
+
+.font-mono-ui {
+  font-family: var(--font-data);
 }
 
 /* Chiseled Obsidian Menu Panel */
 .mayan-panel {
-  background: radial-gradient(circle at 50% 0%, #1f2624 0%, #141817 75%, #0d100f 100%);
-  border: 2px solid var(--mayan-stone-border);
+  background: var(--ui-panel-gradient);
+  border: 2px solid var(--ui-border-subtle);
   border-radius: 10px;
   box-shadow: 
     0 14px 34px rgba(0, 0, 0, 0.85),
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 0 24px rgba(0, 0, 0, 0.65);
-  color: var(--mayan-gold-light);
+  color: var(--text-secondary);
 }
 
 /* Recessed Stone Well (Inputs, Slider Tracks, Inactive Button Wells) */
 .mayan-well {
-  background: #0b0e0d;
-  border: 1px solid #2a302d;
+  background: var(--ui-well-bg);
+  border: 1px solid var(--ui-well-border);
   box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.85);
-  color: var(--mayan-gold-light);
+  color: var(--text-secondary);
 }
 
 /* Active Jade Plaque Button */
 .mayan-btn-jade {
-  background: linear-gradient(180deg, #398f73 0%, #215e4a 65%, #154032 100%);
-  border: 1px solid var(--mayan-jade-light);
+  background: linear-gradient(180deg, #398f73 0%, var(--ui-accent-jade-mid) 65%, var(--ui-accent-jade-dark) 100%);
+  border: 1px solid var(--ui-accent-jade);
   border-radius: 6px;
-  color: #f2fbf7;
+  color: var(--text-primary);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   box-shadow: 
-    0 0 12px rgba(72, 187, 146, 0.35),
+    0 0 12px var(--ui-accent-jade-glow),
     inset 0 1px 1px rgba(255, 255, 255, 0.35),
     inset 0 -2px 4px rgba(0, 0, 0, 0.5);
 }
 
 /* Primary Gold-Rimmed Jade CTA (e.g., "Rasterize to Layer", "Done") */
 .mayan-btn-cta {
-  background: linear-gradient(180deg, #388e72 0%, #1d5744 100%);
-  border: 2px solid var(--mayan-gold-mid);
-  outline: 1px solid #3a2e1e;
+  background: linear-gradient(180deg, #388e72 0%, var(--ui-accent-jade-dark) 100%);
+  border: 2px solid var(--ui-border-gold);
+  outline: 1px solid var(--ui-border-gold-subtle);
   border-radius: 6px;
   color: #fff6e5;
   font-weight: 600;
   box-shadow: 
-    0 0 14px rgba(56, 142, 114, 0.45),
+    0 0 14px var(--ui-accent-jade-glow),
     inset 0 0 0 2px rgba(95, 211, 173, 0.35);
 }
 
 /* Inactive Recessed Stone Button */
 .mayan-btn-stone {
   background: linear-gradient(180deg, #1d2220 0%, #131716 100%);
-  border: 1px solid #2e3633;
-  color: var(--mayan-gold-light);
+  border: 1px solid var(--ui-border-subtle);
+  color: var(--text-secondary);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .mayan-btn-stone:hover {
   background: linear-gradient(180deg, #252b29 0%, #181d1c 100%);
-  border-color: #3f4a46;
+  border-color: var(--ui-border-mid);
   color: #fff0d6;
 }
 
 /* Secondary / Terracotta Copper Accent Button */
 .mayan-btn-terracotta {
-  background: linear-gradient(180deg, #5c2822 0%, #3b1714 100%);
-  border: 1px solid var(--mayan-terracotta-border);
+  background: linear-gradient(180deg, #5c2822 0%, var(--ui-terracotta) 100%);
+  border: 1px solid var(--ui-terracotta-border);
   border-radius: 6px;
   color: #fce8e4;
   box-shadow: 0 0 10px rgba(158, 75, 62, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.2);
@@ -92,21 +162,21 @@
 .mayan-range-slider {
   -webkit-appearance: none;
   appearance: none;
-  background: #0b0e0d;
+  background: var(--slider-track-bg);
   height: 8px;
   border-radius: 4px;
-  border: 1px solid #3a3229;
+  border: 1px solid var(--slider-track-border);
   outline: none;
 }
 .mayan-range-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #7ae8c4 0%, #297a5f 65%, #113a2c 100%);
-  border: 1.5px solid #c8a262;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8), 0 0 8px rgba(95, 211, 173, 0.5);
+  background: var(--slider-thumb-bg);
+  border: 1.5px solid var(--slider-thumb-border);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8), 0 0 8px var(--slider-thumb-glow);
   cursor: pointer;
   transition: transform 0.1s ease;
 }
@@ -115,29 +185,29 @@
 }
 
 .mayan-range-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #7ae8c4 0%, #297a5f 65%, #113a2c 100%);
-  border: 1.5px solid #c8a262;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8), 0 0 8px rgba(95, 211, 173, 0.5);
+  background: var(--slider-thumb-bg);
+  border: 1.5px solid var(--slider-thumb-border);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8), 0 0 8px var(--slider-thumb-glow);
   cursor: pointer;
 }
 
 /* Jade Bead Floating Thumb */
 .mayan-slider-thumb {
-  width: 18px;
-  height: 18px;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #7ae8c4 0%, #297a5f 65%, #113a2c 100%);
-  border: 1.5px solid #c8a262;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8), 0 0 8px rgba(95, 211, 173, 0.5);
+  background: var(--slider-thumb-bg);
+  border: 1.5px solid var(--slider-thumb-border);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8), 0 0 8px var(--slider-thumb-glow);
 }
 
 /* Custom Scrollbar for Mayan stone UI */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2a3531 #0b0e0d;
+  scrollbar-color: var(--ui-border-subtle) var(--ui-well-bg);
 }
 
 ::-webkit-scrollbar {
@@ -145,13 +215,13 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0b0e0d;
+  background: var(--ui-well-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a3531;
+  background: var(--ui-border-subtle);
   border-radius: 3px;
   border: 1px solid #1c2421;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #398f73;
+  background: var(--ui-accent-jade-mid);
 }

@@ -86,7 +86,12 @@ type KritaTreeNodeId =
   | 'dual_tip'
   | 'dual_blending'
   | 'dual_opacity'
-  | 'dual_transform'
+  | 'dual_flow'
+  | 'dual_size'
+  | 'dual_ratio'
+  | 'dual_spacing'
+  | 'dual_rotation'
+  | 'dual_scatter'
   | 'blending_mode'
   | 'opacity'
   | 'flow'
@@ -156,7 +161,8 @@ function createInitialSensors(initial: UniversalBrushPreset): Record<string, Rec
   const result: Record<string, Record<string, { enabled: boolean; curve: { x: number; y: number }[] }>> = {};
   const params = [
     'size', 'opacity', 'flow', 'ratio', 'spacing', 'mirror', 'softness',
-    'rotation', 'scatter', 'color_source', 'darken', 'mix', 'hue', 'saturation', 'value'
+    'rotation', 'scatter', 'color_source', 'darken', 'mix', 'hue', 'saturation', 'value',
+    'dual_size', 'dual_opacity', 'dual_flow', 'dual_spacing', 'dual_rotation', 'dual_scatter'
   ];
 
   for (const param of params) {
@@ -230,10 +236,8 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
     initialPreset.shapeTextureUrl ? 'predefined' : 'auto'
   );
   const [tipSearchQuery, setTipSearchQuery] = useState<string>('');
-  const [previewZoom, setPreviewZoom] = useState<number>(56);
-  const [dualTipZoom, setDualTipZoom] = useState<number>(56);
-  const [brokenTipUrls, setBrokenTipUrls] = useState<Set<string>>(new Set());
-  const [dualTipSearchQuery, setDualTipSearchQuery] = useState<string>('');
+  const [stampPreviewSize, setStampPreviewSize] = useState<number>(56);
+  const [brokenTipIds, setBrokenTipIds] = useState<Set<string>>(() => new Set());
   const [allUnifiedTips, setAllUnifiedTips] = useState<UnifiedTipDef[]>(() => {
     return PREDEFINED_BRUSH_TIPS.map((t) => ({
       id: t.id,
@@ -481,7 +485,10 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
   }, [draft, sensors, tipLoadTick]);
 
   useEffect(() => {
-    drawKritaBannerStroke();
+    const animId = requestAnimationFrame(() => {
+      drawKritaBannerStroke();
+    });
+    return () => cancelAnimationFrame(animId);
   }, [drawKritaBannerStroke]);
 
   const padCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -674,13 +681,7 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
   const toggleTreeNodeCheckbox = (nodeId: KritaTreeNodeId, e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveNode(nodeId);
-    if (
-      nodeId === 'dual_brush' ||
-      nodeId === 'dual_tip' ||
-      nodeId === 'dual_blending' ||
-      nodeId === 'dual_opacity' ||
-      nodeId === 'dual_transform'
-    ) {
+    if (nodeId.startsWith('dual_') || nodeId === 'dual_brush') {
       const isCurrentlyActive = Boolean(draft.dualBrush?.enabled);
       setDraft((d) => ({
         ...d,
@@ -689,11 +690,14 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
           texture: d.dualBrush?.texture || 'charcoal',
           blendMode: d.dualBrush?.blendMode || 'multiply',
           sizeRatio: d.dualBrush?.sizeRatio ?? 1.0,
+          opacity: d.dualBrush?.opacity ?? 1.0,
+          flow: d.dualBrush?.flow ?? 1.0,
           spacing: d.dualBrush?.spacing ?? 0.25,
           scatter: d.dualBrush?.scatter ?? 0,
           intensity: d.dualBrush?.intensity ?? 0.8,
           rotation: d.dualBrush?.rotation ?? 0,
-          shapeTextureUrl: d.dualBrush?.shapeTextureUrl,
+          roundness: d.dualBrush?.roundness ?? 1.0,
+          hardness: d.dualBrush?.hardness ?? 0.8,
         },
       }));
     } else if (nodeId === 'scatter') {
@@ -1102,15 +1106,10 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
               </div>
             </div>
 
-            {/* DEDICATED DUAL BRUSH CATEGORY */}
+            {/* DEDICATED TOP-LEVEL CATEGORY: DUAL BRUSH */}
             <div>
               <div className="px-2 py-1 text-[10px] font-mayan font-bold uppercase tracking-wider text-[#b89058] flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <span>▾ Dual Brush</span>
-                  {draft.dualBrush?.enabled && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#5fd3ad] animate-pulse" />
-                  )}
-                </span>
+                <span>▾ Dual Brush</span>
                 <span
                   onClick={(e) => toggleTreeNodeCheckbox('dual_brush', e)}
                   title="Toggle Dual Brush Engine on/off"
@@ -1126,11 +1125,16 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
               <div className="space-y-0.5 mt-0.5">
                 {(
                   [
-                    { id: 'dual_brush', label: 'Master & Overview', checked: Boolean(draft.dualBrush?.enabled) },
-                    { id: 'dual_tip', label: 'Secondary Tip & Textures', checked: Boolean(draft.dualBrush?.enabled) },
-                    { id: 'dual_blending', label: 'Dual Blending', checked: Boolean(draft.dualBrush?.enabled) },
-                    { id: 'dual_opacity', label: 'Dual Opacity & Flow', checked: Boolean(draft.dualBrush?.enabled) },
-                    { id: 'dual_transform', label: 'Dual Size & Spacing', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_brush', label: 'Dual Overview', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_tip', label: 'Secondary Tip', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_blending', label: 'Blending Mode', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_opacity', label: 'Opacity', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_flow', label: 'Flow', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_size', label: 'Size & Ratio', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_ratio', label: 'Ratio / Aspect', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_spacing', label: 'Spacing', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_rotation', label: 'Rotation', checked: Boolean(draft.dualBrush?.enabled) },
+                    { id: 'dual_scatter', label: 'Scatter', checked: Boolean(draft.dualBrush?.enabled) },
                   ] as const
                 ).map((item) => (
                   <div
@@ -1145,7 +1149,7 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                     <span className="truncate">{item.label}</span>
                     <span
                       onClick={(e) => toggleTreeNodeCheckbox(item.id, e)}
-                      title="Click to toggle Dual Brush"
+                      title="Click to toggle option on/off"
                       className="p-0.5 hover:scale-110 transition-transform"
                     >
                       {item.checked ? (
@@ -1439,31 +1443,28 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Unified Search Header (Categories Removed) + Preview Size Slider */}
+                    {/* Unified Search Header (Categories Removed) */}
                     <div className="flex items-center justify-between gap-3 bg-[#0c100e] px-3 py-1.5 rounded-xl border border-[#2c3532]">
                       <div className="flex items-center gap-2 text-xs">
                         <span className="font-semibold text-[#e6c699]">Unified Library</span>
-                        <span className="text-[10px] text-[#9e9484] hidden sm:inline">
+                        <span className="text-[10px] text-[#9e9484]">
                           All local brush tips, uploaded textures & built-in stamps
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        {/* Stamp Preview Size Slider */}
-                        <div className="flex items-center gap-1.5 bg-[#080b0a] px-2 py-0.5 rounded-lg border border-[#2c3532]">
-                          <span className="text-[10px] text-[#9e9484] whitespace-nowrap">Size:</span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-[#060807] rounded-lg border border-[#2c3532] text-xs">
+                          <Sliders size={11} className="text-[#b89058]" />
+                          <span className="text-[10px] text-[#9e9484] shrink-0">Zoom: {stampPreviewSize}px</span>
                           <input
                             type="range"
-                            min={36}
-                            max={100}
-                            value={previewZoom}
-                            onChange={(e) => setPreviewZoom(parseInt(e.target.value, 10))}
-                            className="w-16 h-1 accent-[#5fd3ad] cursor-pointer"
-                            title={`Stamp thumbnail preview size: ${previewZoom}px`}
+                            min="36"
+                            max="120"
+                            value={stampPreviewSize}
+                            onChange={(e) => setStampPreviewSize(Number(e.target.value))}
+                            className="w-16 mayan-range-slider cursor-pointer"
+                            title="Adjust stamp preview thumbnail size"
                           />
-                          <span className="text-[10px] font-mono text-[#5fd3ad] w-6 text-right">
-                            {previewZoom}
-                          </span>
                         </div>
 
                         <div className="relative w-44 shrink-0">
@@ -1492,17 +1493,18 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
 
                     {/* Split: Left Thumbnails Grid + Right Tip Gizmo & Controls */}
                     <div className="flex gap-3 flex-1 min-h-0">
-                      {/* Left: Dense Scrollable Grid of Tip Thumbnails with Dynamic Zoom */}
+                      {/* Left: Dense Scrollable Grid of Tip Thumbnails with Zoom */}
                       <div
-                        className="flex-1 overflow-y-auto max-h-[300px] p-2 mayan-well rounded-xl border border-[#2c3532] gap-1.5 content-start"
+                        className="flex-1 overflow-y-auto max-h-[300px] p-2 mayan-well rounded-xl border border-[#2c3532] content-start"
                         style={{
                           display: 'grid',
-                          gridTemplateColumns: `repeat(auto-fill, minmax(${previewZoom}px, 1fr))`,
+                          gridTemplateColumns: `repeat(auto-fill, minmax(${stampPreviewSize}px, 1fr))`,
+                          gap: '6px',
                         }}
                       >
                         {allUnifiedTips
-                          .filter((tip) => !brokenTipUrls.has(tip.url))
                           .filter((tip) => {
+                            if (brokenTipIds.has(tip.id) || brokenTipIds.has(tip.url)) return false;
                             if (tipSearchQuery.trim()) {
                               const q = tipSearchQuery.toLowerCase();
                               return (
@@ -1529,8 +1531,7 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                                   preloadKritaTexture(tip.url);
                                 }}
                                 title={`${tip.name} (${tip.badge || 'Tip'}${tip.width ? ` • ${tip.width}×${tip.height}` : ''})`}
-                                style={{ height: `${previewZoom}px`, width: '100%' }}
-                                className={`group relative flex items-center justify-center p-1 rounded-lg border cursor-pointer transition overflow-hidden ${
+                                className={`group relative flex flex-col items-center justify-center p-1 rounded-lg border cursor-pointer transition aspect-square overflow-hidden ${
                                   isSelected
                                     ? 'border-2 border-[#5fd3ad] bg-[#164435]/70 ring-2 ring-[#5fd3ad]/50 shadow-lg scale-95'
                                     : 'border-[#2c3532] bg-[#0c100e] hover:border-[#b89058] hover:bg-[#141a18]'
@@ -1541,23 +1542,24 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                                   alt={tip.name}
                                   loading="lazy"
                                   onError={() => {
-                                    setBrokenTipUrls((prev) => new Set([...prev, tip.url]));
+                                    setBrokenTipIds((prev) => new Set(prev).add(tip.id));
                                   }}
-                                  className="w-full h-full object-contain filter drop-shadow-sm pointer-events-none"
+                                  className="w-full h-full object-contain filter drop-shadow-sm"
                                 />
-                                {/* Clean corner indicator dot instead of bulky squished badge */}
-                                <span
-                                  title={tip.badge}
-                                  className={`absolute top-1 left-1 w-2 h-2 rounded-full border border-black/40 shadow-sm ${
-                                    tip.source === 'local_tip'
-                                      ? 'bg-emerald-400'
-                                      : tip.source === 'local_texture'
-                                      ? 'bg-amber-400'
-                                      : 'bg-[#5fd3ad]'
-                                  }`}
-                                />
+                                {tip.source === 'local_tip' && (
+                                  <span
+                                    title="Local Tip"
+                                    className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-[#5fd3ad] shadow-[0_0_4px_rgba(95,211,173,0.8)] pointer-events-none"
+                                  />
+                                )}
+                                {tip.source === 'local_texture' && (
+                                  <span
+                                    title="Local Texture"
+                                    className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-[#e6c699] shadow-[0_0_4px_rgba(230,198,153,0.8)] pointer-events-none"
+                                  />
+                                )}
                                 {isSelected && (
-                                  <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-[#5fd3ad] ring-2 ring-black" />
+                                  <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#5fd3ad] shadow-[0_0_6px_rgba(95,211,173,0.9)]" />
                                 )}
                               </button>
                             );
@@ -2072,7 +2074,7 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
               </div>
             )}
 
-            {/* DUAL BRUSH: 1. OVERVIEW & MASTER SWITCH */}
+            {/* DUAL BRUSH ENGINE & FULL PARAMETER PARITY SUBNODES */}
             {activeNode === 'dual_brush' && (
               <div className="space-y-5">
                 {/* Header & Main Toggle */}
@@ -2081,11 +2083,11 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                     <h3 className="text-sm font-mayan font-bold text-[#f2fbf7] tracking-wide flex items-center gap-2">
                       <span>Dual Brush Engine</span>
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#164435] text-[#5fd3ad] border border-[#5fd3ad]/40 font-mono">
-                        Secondary Composite
+                        Secondary Brush
                       </span>
                     </h3>
                     <p className="text-[11px] text-[#9e9484] mt-0.5">
-                      Combines a secondary tip shape or texture to mask, blend, or chisel against the primary dab
+                      Composites a secondary brush shape to mask, blend, or subtract against primary dab
                     </p>
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer bg-[#0e1311] px-3 py-1.5 rounded-lg border border-[#2c3532] hover:border-[#5fd3ad]/50 transition">
@@ -2101,472 +2103,316 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                             texture: d.dualBrush?.texture || 'charcoal',
                             blendMode: d.dualBrush?.blendMode || 'multiply',
                             sizeRatio: d.dualBrush?.sizeRatio ?? 1.0,
+                            opacity: d.dualBrush?.opacity ?? 1.0,
+                            flow: d.dualBrush?.flow ?? 1.0,
                             spacing: d.dualBrush?.spacing ?? 0.25,
                             scatter: d.dualBrush?.scatter ?? 0,
                             intensity: d.dualBrush?.intensity ?? 0.8,
                             rotation: d.dualBrush?.rotation ?? 0,
-                            shapeTextureUrl: d.dualBrush?.shapeTextureUrl,
+                            roundness: d.dualBrush?.roundness ?? 1.0,
+                            hardness: d.dualBrush?.hardness ?? 0.8,
                           },
                         }));
                       }}
                       className="accent-[#5fd3ad] rounded cursor-pointer w-4 h-4"
                     />
                     <span className="text-xs font-semibold text-[#f2fbf7]">
-                      {draft.dualBrush?.enabled ? 'Secondary Brush: Active' : 'Enable Dual Brush'}
+                      {draft.dualBrush?.enabled ? 'Secondary Brush: Active' : 'Enable Secondary Brush'}
                     </span>
                   </label>
                 </div>
 
-                {/* Active Secondary Tip Banner */}
-                <div className="p-3 bg-[#0e1311] rounded-xl border border-[#2c3532] flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-[#080b0a] border border-[#2c3532] flex items-center justify-center overflow-hidden shrink-0">
-                      {draft.dualBrush?.shapeTextureUrl ? (
-                        <img
-                          src={draft.dualBrush.shapeTextureUrl}
-                          alt="Dual Tip"
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <span className="text-xs font-bold text-[#5fd3ad]">
-                          {draft.dualBrush?.stampShape?.slice(0, 3).toUpperCase() || 'DAB'}
-                        </span>
-                      )}
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-[#f2fbf7] flex items-center gap-2">
-                        <span>
-                          {draft.dualBrush?.shapeTextureUrl
-                            ? (allUnifiedTips.find((t) => t.url === draft.dualBrush?.shapeTextureUrl)?.name || 'Custom Stamp Tip')
-                            : (draft.dualBrush?.stampShape?.replace('_', ' ') || draft.dualBrush?.texture?.replace('_', ' ') || 'Charcoal Texture')}
-                        </span>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#164435] text-[#5fd3ad] font-mono">
-                          {draft.dualBrush?.blendMode?.toUpperCase() || 'MULTIPLY'}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-[#9e9484] mt-0.5">
-                        Ratio: {Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}% · Intensity: {Math.round((draft.dualBrush?.intensity ?? 0.8) * 100)}% · Spacing: {Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}%
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveNode('dual_tip')}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold mayan-btn-jade cursor-pointer shrink-0"
-                  >
-                    Change Tip / Texture
-                  </button>
-                </div>
-
-                {/* Subcategory Jump Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                {/* Subcategory Navigation Grid */}
+                <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: 'dual_tip', title: 'Tip & Textures', desc: 'All stamps & local textures' },
-                    { id: 'dual_blending', title: 'Blending Mode', desc: 'Multiply, Mask, Subtract...' },
-                    { id: 'dual_opacity', title: 'Opacity & Flow', desc: 'Secondary strength & buildup' },
-                    { id: 'dual_transform', title: 'Transform & Size', desc: 'Ratio, spacing & scatter' },
-                  ].map((card) => (
+                    { id: 'dual_tip', label: 'Secondary Tip', desc: draft.dualBrush?.stampShape?.replace('_', ' ') || 'Select Tip & Stamps' },
+                    { id: 'dual_blending', label: 'Blending Mode', desc: draft.dualBrush?.blendMode || 'multiply' },
+                    { id: 'dual_opacity', label: 'Opacity', desc: `${Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}%` },
+                    { id: 'dual_flow', label: 'Flow', desc: `${Math.round((draft.dualBrush?.flow ?? 1.0) * 100)}%` },
+                    { id: 'dual_size', label: 'Size & Ratio', desc: `${Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}% ratio` },
+                    { id: 'dual_ratio', label: 'Ratio / Aspect', desc: `${Math.round((draft.dualBrush?.roundness ?? 1.0) * 100)}% roundness` },
+                    { id: 'dual_spacing', label: 'Spacing', desc: `${Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}%` },
+                    { id: 'dual_rotation', label: 'Rotation', desc: `${Math.round(draft.dualBrush?.rotation ?? 0)}°` },
+                    { id: 'dual_scatter', label: 'Scatter', desc: `${Math.round(draft.dualBrush?.scatter ?? 0)}%` },
+                  ].map((cat) => (
                     <button
-                      key={card.id}
+                      key={cat.id}
                       type="button"
-                      onClick={() => setActiveNode(card.id as KritaTreeNodeId)}
-                      className="p-2.5 rounded-xl bg-[#0e1311] border border-[#2c3532] hover:border-[#5fd3ad] text-left transition cursor-pointer flex flex-col gap-1"
+                      onClick={() => setActiveNode(cat.id as KritaTreeNodeId)}
+                      className="p-2.5 rounded-xl border border-[#2c3532] bg-[#0c100e] hover:border-[#5fd3ad]/60 hover:bg-[#141a18] text-left transition cursor-pointer flex flex-col gap-0.5 group"
                     >
-                      <span className="text-xs font-bold text-[#e6c699]">{card.title}</span>
-                      <span className="text-[10px] text-[#9e9484]">{card.desc}</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-[#e6c699] group-hover:text-[#5fd3ad] transition-colors">{cat.label}</span>
+                        <ChevronRight size={12} className="text-[#9e9484] group-hover:translate-x-0.5 transition-transform" />
+                      </div>
+                      <span className="text-[10px] text-[#9e9484] capitalize truncate font-mono">{cat.desc}</span>
                     </button>
                   ))}
                 </div>
 
-                {/* Quick Tuning Sliders */}
-                <div className="space-y-3 pt-2 border-t border-[#2c3532]">
-                  <div className="flex items-center justify-between gap-3 bg-[#0e1311] p-2.5 rounded-lg border border-[#2c3532]">
-                    <span className="text-xs text-[#9e9484] w-28">Size Ratio</span>
-                    <input
-                      type="range"
-                      min="20"
-                      max="300"
-                      value={Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) / 100;
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              spacing: 0.25,
-                              scatter: 0,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            sizeRatio: val,
-                          },
-                        }));
-                      }}
-                      className="flex-1 accent-[#5fd3ad] cursor-pointer"
-                    />
-                    <span className="text-xs font-mono text-[#5fd3ad] w-14 text-right">
-                      {Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}%
-                    </span>
-                  </div>
+                {/* Quick Master Controls */}
+                <div className="space-y-3 pt-3 border-t border-[#2c3532]">
+                  <span className="text-xs font-semibold text-[#e6c699]">Quick Adjustments:</span>
 
-                  <div className="flex items-center justify-between gap-3 bg-[#0e1311] p-2.5 rounded-lg border border-[#2c3532]">
-                    <span className="text-xs text-[#9e9484] w-28">Opacity</span>
-                    <input
-                      type="range"
-                      min="5"
-                      max="100"
-                      value={Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) / 100;
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              scatter: 0,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            opacity: val,
-                          },
-                        }));
-                      }}
-                      className="flex-1 accent-[#5fd3ad] cursor-pointer"
-                    />
-                    <span className="text-xs font-mono text-[#5fd3ad] w-14 text-right">
-                      {Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}%
-                    </span>
-                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1 bg-[#0e1311] p-2.5 rounded-lg border border-[#2c3532]">
+                      <div className="flex justify-between text-xs text-[#9e9484]">
+                        <span>Secondary Opacity</span>
+                        <span className="text-[#5fd3ad] font-mono">{Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="5"
+                        max="100"
+                        value={Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) / 100;
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), opacity: val },
+                          }));
+                        }}
+                        className="w-full mayan-range-slider cursor-pointer"
+                      />
+                    </div>
 
-                  <div className="flex items-center justify-between gap-3 bg-[#0e1311] p-2.5 rounded-lg border border-[#2c3532]">
-                    <span className="text-xs text-[#9e9484] w-28">Intensity / Depth</span>
-                    <input
-                      type="range"
-                      min="10"
-                      max="100"
-                      value={Math.round((draft.dualBrush?.intensity ?? 0.8) * 100)}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) / 100;
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              scatter: 0,
-                              rotation: 0,
-                            }),
-                            intensity: val,
-                          },
-                        }));
-                      }}
-                      className="flex-1 accent-[#5fd3ad] cursor-pointer"
-                    />
-                    <span className="text-xs font-mono text-[#5fd3ad] w-14 text-right">
-                      {Math.round((draft.dualBrush?.intensity ?? 0.8) * 100)}%
-                    </span>
+                    <div className="flex flex-col gap-1 bg-[#0e1311] p-2.5 rounded-lg border border-[#2c3532]">
+                      <div className="flex justify-between text-xs text-[#9e9484]">
+                        <span>Secondary Flow</span>
+                        <span className="text-[#5fd3ad] font-mono">{Math.round((draft.dualBrush?.flow ?? 1.0) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="5"
+                        max="100"
+                        value={Math.round((draft.dualBrush?.flow ?? 1.0) * 100)}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) / 100;
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), flow: val },
+                          }));
+                        }}
+                        className="w-full mayan-range-slider cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1 bg-[#0e1311] p-2.5 rounded-lg border border-[#2c3532]">
+                      <div className="flex justify-between text-xs text-[#9e9484]">
+                        <span>Size Ratio</span>
+                        <span className="text-[#5fd3ad] font-mono">{Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="20"
+                        max="300"
+                        value={Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) / 100;
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), sizeRatio: val },
+                          }));
+                        }}
+                        className="w-full mayan-range-slider cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1 bg-[#0e1311] p-2.5 rounded-lg border border-[#2c3532]">
+                      <div className="flex justify-between text-xs text-[#9e9484]">
+                        <span>Tip Spacing</span>
+                        <span className="text-[#5fd3ad] font-mono">{Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="5"
+                        max="150"
+                        value={Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) / 100;
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, scatter: 0, intensity: 0.8, rotation: 0 }), spacing: val },
+                          }));
+                        }}
+                        className="w-full mayan-range-slider cursor-pointer"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* DUAL BRUSH: 2. SECONDARY TIP & TEXTURES (ALL TIPS & TEXTURES ENABLED) */}
+            {/* SUBNODE 1: SECONDARY BRUSH TIP PICKER */}
             {activeNode === 'dual_tip' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
-                  <div>
-                    <h3 className="text-sm font-mayan font-bold text-[#f2fbf7] tracking-wide flex items-center gap-2">
-                      <span>Secondary Tip & Textures</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#164435] text-[#5fd3ad] border border-[#5fd3ad]/40 font-mono">
-                        {allUnifiedTips.length} Available
-                      </span>
-                    </h3>
-                    <p className="text-[11px] text-[#9e9484] mt-0.5">
-                      Select any local brush tip, uploaded texture, or built-in stamp for the dual composite
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveNode('dual_brush')}
-                    className="text-xs text-[#5fd3ad] hover:underline cursor-pointer"
-                  >
-                    ← Back to Overview
-                  </button>
-                </div>
-
-                {/* Active Secondary Selection Banner */}
-                <div className="px-3 py-1.5 rounded-lg bg-[#0e1312] border border-[#2c3532] flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 truncate">
-                    <span className="text-[#9e9484]">Active Secondary Tip:</span>
-                    <span className="font-semibold text-white truncate">
-                      {(() => {
-                        if (!draft.dualBrush?.shapeTextureUrl) {
-                          return draft.dualBrush?.stampShape?.replace('_', ' ') || draft.dualBrush?.texture || 'Procedural Charcoal';
-                        }
-                        const matched = allUnifiedTips.find((t) => t.url === draft.dualBrush?.shapeTextureUrl);
-                        return matched ? `${matched.name} (${matched.badge})` : 'Custom Secondary Stamp';
-                      })()}
-                    </span>
-                  </div>
-                  {draft.dualBrush?.shapeTextureUrl && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              scatter: 0,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            shapeTextureUrl: undefined,
-                            texture: 'charcoal',
-                          },
-                        }));
-                      }}
-                      className="text-[10px] text-red-400 hover:text-red-300 underline cursor-pointer shrink-0"
-                    >
-                      Reset to Procedural
-                    </button>
-                  )}
-                </div>
-
-                {/* Search Bar + Zoom Slider */}
-                <div className="flex items-center justify-between gap-3 bg-[#0c100e] px-3 py-1.5 rounded-xl border border-[#2c3532]">
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="font-semibold text-[#e6c699]">Unified Dual Library</span>
-                    <span className="text-[10px] text-[#9e9484] hidden sm:inline">
-                      Includes all textures & tip stamps
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="flex items-center gap-1.5 bg-[#080b0a] px-2 py-0.5 rounded-lg border border-[#2c3532]">
-                      <span className="text-[10px] text-[#9e9484] whitespace-nowrap">Size:</span>
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Brush Tip & Stamps
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-[#060807] rounded-lg border border-[#2c3532] text-xs">
+                      <Sliders size={11} className="text-[#b89058]" />
+                      <span className="text-[10px] text-[#9e9484] shrink-0">Zoom: {stampPreviewSize}px</span>
                       <input
                         type="range"
-                        min={36}
-                        max={100}
-                        value={dualTipZoom}
-                        onChange={(e) => setDualTipZoom(parseInt(e.target.value, 10))}
-                        className="w-16 h-1 accent-[#5fd3ad] cursor-pointer"
-                        title={`Dual tip thumbnail size: ${dualTipZoom}px`}
+                        min="36"
+                        max="120"
+                        value={stampPreviewSize}
+                        onChange={(e) => setStampPreviewSize(Number(e.target.value))}
+                        className="w-16 mayan-range-slider cursor-pointer"
+                        title="Adjust stamp preview thumbnail size"
                       />
-                      <span className="text-[10px] font-mono text-[#5fd3ad] w-6 text-right">
-                        {dualTipZoom}
-                      </span>
                     </div>
-
-                    <div className="relative w-44 shrink-0">
-                      <Search
-                        size={11}
-                        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5fd3ad]"
-                      />
+                    <div className="relative w-40 shrink-0">
+                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5fd3ad]" />
                       <input
                         type="text"
-                        placeholder="Search tips & textures..."
-                        value={dualTipSearchQuery}
-                        onChange={(e) => setDualTipSearchQuery(e.target.value)}
+                        placeholder="Search secondary stamps..."
+                        value={tipSearchQuery}
+                        onChange={(e) => setTipSearchQuery(e.target.value)}
                         className="w-full bg-[#060807] text-white text-[11px] pl-6 pr-5 py-1 rounded-lg border border-[#2c3532] focus:outline-none focus:border-[#5fd3ad]"
                       />
-                      {dualTipSearchQuery && (
-                        <button
-                          onClick={() => setDualTipSearchQuery('')}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs cursor-pointer"
-                        >
-                          ×
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Unified Tips & Textures Grid */}
-                <div
-                  className="flex-1 overflow-y-auto max-h-[320px] p-2 mayan-well rounded-xl border border-[#2c3532] gap-1.5 content-start"
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: `repeat(auto-fill, minmax(${dualTipZoom}px, 1fr))`,
-                  }}
-                >
-                  {allUnifiedTips
-                    .filter((tip) => !brokenTipUrls.has(tip.url))
-                    .filter((tip) => {
-                      if (dualTipSearchQuery.trim()) {
-                        const q = dualTipSearchQuery.toLowerCase();
-                        return (
-                          tip.name.toLowerCase().includes(q) ||
-                          (tip.badge && tip.badge.toLowerCase().includes(q))
-                        );
-                      }
-                      return true;
-                    })
-                    .map((tip) => {
-                      const isSelected = draft.dualBrush?.shapeTextureUrl === tip.url;
-
+                {/* Predefined Shape Presets */}
+                <div className="space-y-1.5">
+                  <span className="text-xs font-semibold text-[#e6c699]">Geometric & Natural Shape Presets:</span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[
+                      { id: 'circle', label: 'Circle', desc: 'Soft gradient stamp' },
+                      { id: 'square', label: 'Square', desc: 'Crisp chisel stamp' },
+                      { id: 'grunge_splatter', label: 'Splatter', desc: 'Spray & droplets' },
+                      { id: 'raked_bristles', label: 'Bristles', desc: 'Multi-fiber rake' },
+                      { id: 'noise_grain', label: 'Grain', desc: 'Film noise speckle' },
+                      { id: 'charcoal_grit', label: 'Charcoal', desc: 'Porous grit flecks' },
+                      { id: 'stipple', label: 'Stipple', desc: 'Concentric dots' },
+                      { id: 'canvas_weave', label: 'Weave', desc: 'Cross-hatch grid' },
+                    ].map((stampItem) => {
+                      const isSelected = draft.dualBrush?.stampShape === stampItem.id && !draft.dualBrush?.shapeTextureUrl;
                       return (
                         <button
-                          key={`dual_${tip.source}_${tip.id}`}
+                          key={stampItem.id}
+                          type="button"
                           onClick={() => {
                             setDraft((d) => ({
                               ...d,
                               dualBrush: {
-                                ...(d.dualBrush || {
-                                  blendMode: 'multiply',
-                                  sizeRatio: 1.0,
-                                  spacing: 0.25,
-                                  scatter: 0,
-                                  intensity: 0.8,
-                                  rotation: 0,
-                                }),
-                                enabled: true,
-                                texture: tip.id,
-                                shapeTextureUrl: tip.url,
+                                ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }),
+                                stampShape: stampItem.id as any,
+                                shapeTextureUrl: undefined,
                               },
                             }));
-                            preloadKritaTexture(tip.url);
                           }}
-                          title={`${tip.name} (${tip.badge || 'Tip'}${tip.width ? ` • ${tip.width}×${tip.height}` : ''})`}
-                          style={{ height: `${dualTipZoom}px`, width: '100%' }}
-                          className={`group relative flex items-center justify-center p-1 rounded-lg border cursor-pointer transition overflow-hidden ${
+                          className={`p-2 rounded-xl border text-left transition cursor-pointer flex flex-col gap-0.5 ${
                             isSelected
-                              ? 'border-2 border-[#5fd3ad] bg-[#164435]/70 ring-2 ring-[#5fd3ad]/50 shadow-lg scale-95'
-                              : 'border-[#2c3532] bg-[#0c100e] hover:border-[#b89058] hover:bg-[#141a18]'
+                              ? 'bg-[#164435] border-[#5fd3ad] text-[#f2fbf7] shadow-sm ring-1 ring-[#5fd3ad]/50'
+                              : 'bg-[#0e1311] border-[#2c3532] text-[#e6c699]/70 hover:border-[#b89058]/50 hover:text-[#f2fbf7]'
                           }`}
                         >
-                          <img
-                            src={tip.url}
-                            alt={tip.name}
-                            loading="lazy"
-                            onError={() => {
-                              setBrokenTipUrls((prev) => new Set([...prev, tip.url]));
-                            }}
-                            className="w-full h-full object-contain filter drop-shadow-sm pointer-events-none"
-                          />
-                          <span
-                            title={tip.badge}
-                            className={`absolute top-1 left-1 w-2 h-2 rounded-full border border-black/40 shadow-sm ${
-                              tip.source === 'local_tip'
-                                ? 'bg-emerald-400'
-                                : tip.source === 'local_texture'
-                                ? 'bg-amber-400'
-                                : 'bg-[#5fd3ad]'
-                            }`}
-                          />
-                          {isSelected && (
-                            <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-[#5fd3ad] ring-2 ring-black" />
-                          )}
+                          <span className="text-[11px] font-bold truncate">{stampItem.label}</span>
+                          <span className="text-[9px] text-[#9e9484] truncate">{stampItem.desc}</span>
                         </button>
                       );
                     })}
+                  </div>
                 </div>
 
-                {/* Procedural Stamp Fallbacks */}
-                <div className="space-y-1.5 pt-2 border-t border-[#2c3532]">
-                  <span className="text-[11px] font-semibold text-[#e6c699]">
-                    Procedural Preset Shapes (Geometric Fallback):
-                  </span>
-                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
-                    {[
-                      { id: 'circle', label: 'Circle' },
-                      { id: 'square', label: 'Square' },
-                      { id: 'grunge_splatter', label: 'Splatter' },
-                      { id: 'raked_bristles', label: 'Bristles' },
-                      { id: 'noise_grain', label: 'Grain' },
-                      { id: 'charcoal_grit', label: 'Charcoal' },
-                      { id: 'stipple', label: 'Stipple' },
-                      { id: 'canvas_weave', label: 'Weave' },
-                    ].map((stamp) => (
-                      <button
-                        key={stamp.id}
-                        type="button"
-                        onClick={() => {
-                          setDraft((d) => ({
-                            ...d,
-                            dualBrush: {
-                              ...(d.dualBrush || {
-                                enabled: true,
-                                blendMode: 'multiply',
-                                sizeRatio: 1.0,
-                                spacing: 0.25,
-                                scatter: 0,
-                                intensity: 0.8,
-                                rotation: 0,
-                              }),
-                              enabled: true,
-                              texture: d.dualBrush?.texture || 'charcoal',
-                              stampShape: stamp.id as any,
-                              shapeTextureUrl: undefined,
-                            },
-                          }));
-                        }}
-                        className={`px-2 py-1.5 rounded-lg border text-center text-[10px] font-medium transition cursor-pointer ${
-                          !draft.dualBrush?.shapeTextureUrl && draft.dualBrush?.stampShape === stamp.id
-                            ? 'bg-[#164435] border-[#5fd3ad] text-[#5fd3ad] font-bold'
-                            : 'bg-[#0e1311] border-[#2c3532] text-[#9e9484] hover:text-[#f2fbf7]'
-                        }`}
-                      >
-                        {stamp.label}
-                      </button>
-                    ))}
+                {/* Stamp Library Grid */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#e6c699]">Unified Stamp Library (Click to assign secondary tip):</span>
+                    {draft.dualBrush?.shapeTextureUrl && (
+                      <span className="text-[10px] text-[#5fd3ad] font-mono">Custom Tip Assigned</span>
+                    )}
+                  </div>
+                  <div
+                    className="overflow-y-auto max-h-[220px] p-2 mayan-well rounded-xl border border-[#2c3532] content-start"
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: `repeat(auto-fill, minmax(${stampPreviewSize}px, 1fr))`,
+                      gap: '6px',
+                    }}
+                  >
+                    {allUnifiedTips
+                      .filter((tip) => {
+                        if (brokenTipIds.has(tip.id) || brokenTipIds.has(tip.url)) return false;
+                        if (tipSearchQuery.trim()) {
+                          const q = tipSearchQuery.toLowerCase();
+                          return tip.name.toLowerCase().includes(q) || (tip.badge && tip.badge.toLowerCase().includes(q));
+                        }
+                        return true;
+                      })
+                      .map((tip) => {
+                        const isSelected = draft.dualBrush?.shapeTextureUrl === tip.url;
+                        return (
+                          <button
+                            key={`dual_${tip.source}_${tip.id}`}
+                            onClick={() => {
+                              preloadKritaTexture(tip.url);
+                              setDraft((d) => ({
+                                ...d,
+                                dualBrush: {
+                                  ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }),
+                                  shapeTextureUrl: tip.url,
+                                  stampShape: tip.name as any,
+                                },
+                              }));
+                            }}
+                            title={`${tip.name} (${tip.badge || 'Tip'}${tip.width ? ` • ${tip.width}×${tip.height}` : ''})`}
+                            className={`group relative flex flex-col items-center justify-center p-1 rounded-lg border cursor-pointer transition aspect-square overflow-hidden ${
+                              isSelected
+                                ? 'border-2 border-[#5fd3ad] bg-[#164435]/70 ring-2 ring-[#5fd3ad]/50 shadow-lg scale-95'
+                                : 'border-[#2c3532] bg-[#0c100e] hover:border-[#b89058] hover:bg-[#141a18]'
+                            }`}
+                          >
+                            <img
+                              src={tip.url}
+                              alt={tip.name}
+                              loading="lazy"
+                              onError={() => setBrokenTipIds((prev) => new Set(prev).add(tip.id))}
+                              className="w-full h-full object-contain filter drop-shadow-sm"
+                            />
+                            {tip.source === 'local_tip' && (
+                              <span title="Local Tip" className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-[#5fd3ad] shadow-[0_0_4px_rgba(95,211,173,0.8)] pointer-events-none" />
+                            )}
+                            {tip.source === 'local_texture' && (
+                              <span title="Local Texture" className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-[#e6c699] shadow-[0_0_4px_rgba(230,198,153,0.8)] pointer-events-none" />
+                            )}
+                            {isSelected && (
+                              <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#5fd3ad] shadow-[0_0_6px_rgba(95,211,173,0.9)]" />
+                            )}
+                          </button>
+                        );
+                      })}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* DUAL BRUSH: 3. BLENDING MODE */}
+            {/* SUBNODE 2: SECONDARY BLENDING MODE */}
             {activeNode === 'dual_blending' && (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
-                  <div>
-                    <h3 className="text-sm font-mayan font-bold text-[#f2fbf7] tracking-wide flex items-center gap-2">
-                      <span>Dual Blending Mode</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#164435] text-[#5fd3ad] font-mono">
-                        {draft.dualBrush?.blendMode?.toUpperCase() || 'MULTIPLY'}
-                      </span>
-                    </h3>
-                    <p className="text-[11px] text-[#9e9484] mt-0.5">
-                      Determines how the secondary tip mathematical operation interacts with the primary brush stroke
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveNode('dual_brush')}
-                    className="text-xs text-[#5fd3ad] hover:underline cursor-pointer"
-                  >
-                    ← Back to Overview
-                  </button>
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Tip Blending Mode
+                  </span>
+                  <span className="text-xs font-mono text-[#5fd3ad] bg-[#164435] px-2.5 py-1 rounded-lg border border-[#5fd3ad]/30">
+                    Active: {draft.dualBrush?.blendMode || 'multiply'}
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-2 gap-2">
                   {[
-                    { id: 'multiply', label: 'Multiply', desc: 'Darkens stroke by multiplying densities (classic pencil/ink)' },
-                    { id: 'mask', label: 'Mask / Clip', desc: 'Clips primary stroke strictly to the secondary tip contour' },
-                    { id: 'subtract', label: 'Subtract / Carve', desc: 'Erodes texture from the stroke for chalk & dry fiber cuts' },
-                    { id: 'overlay', label: 'Overlay', desc: 'High-contrast texture response to underlying paper fiber' },
-                    { id: 'darken', label: 'Darken (Min)', desc: 'Keeps whichever dab component has stronger pigment density' },
-                    { id: 'lighten', label: 'Lighten (Max)', desc: 'Adds bright highlights and reflective pigment flecks' },
-                    { id: 'color-dodge', label: 'Color Dodge', desc: 'Luminous flecks and incandescent pastel sparks' },
-                    { id: 'screen', label: 'Screen', desc: 'Soft luminous washes and diffused watercolor haze' },
-                    { id: 'linear-burn', label: 'Linear Burn', desc: 'Deep saturated rich ink staining and charcoal buildup' },
+                    { id: 'multiply', label: 'Multiply (Darken)', desc: 'Darkens and stains secondary texture into the primary stroke body' },
+                    { id: 'mask', label: 'Mask (Stencil)', desc: 'Clips primary dab pixels directly to secondary tip silhouette' },
+                    { id: 'subtract', label: 'Subtract (Carve)', desc: 'Erodes and cuts the secondary tip shape out of primary dab' },
+                    { id: 'overlay', label: 'Overlay (Contrast)', desc: 'Applies rich contrast dual lighting texture' },
+                    { id: 'darken', label: 'Darken (Minimum)', desc: 'Takes the minimum luminance between primary and secondary dabs' },
                   ].map((m) => {
-                    const isSelected = (draft.dualBrush?.blendMode || 'multiply') === m.id;
+                    const isSel = (draft.dualBrush?.blendMode || 'multiply') === m.id;
                     return (
                       <button
                         key={m.id}
@@ -2575,29 +2421,20 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                           setDraft((d) => ({
                             ...d,
                             dualBrush: {
-                              ...(d.dualBrush || {
-                                enabled: true,
-                                texture: 'charcoal',
-                                sizeRatio: 1.0,
-                                spacing: 0.25,
-                                scatter: 0,
-                                intensity: 0.8,
-                                rotation: 0,
-                              }),
-                              enabled: true,
+                              ...(d.dualBrush || { enabled: true, texture: 'charcoal', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }),
                               blendMode: m.id as any,
                             },
                           }));
                         }}
                         className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col gap-1 ${
-                          isSelected
-                            ? 'bg-[#164435] border-[#5fd3ad] text-[#f2fbf7] shadow-sm ring-1 ring-[#5fd3ad]/50'
-                            : 'bg-[#0e1311] border-[#2c3532] text-[#e6c699]/80 hover:border-[#b89058]/50 hover:text-[#f2fbf7]'
+                          isSel
+                            ? 'bg-[#164435] border-[#5fd3ad] text-[#f2fbf7] ring-1 ring-[#5fd3ad]/50 shadow-md'
+                            : 'bg-[#0e1311] border-[#2c3532] text-[#e6c699]/70 hover:border-[#b89058] hover:text-[#f2fbf7]'
                         }`}
                       >
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold">{m.label}</span>
-                          {isSelected && <span className="w-2 h-2 rounded-full bg-[#5fd3ad]" />}
+                          {isSel && <div className="w-2 h-2 rounded-full bg-[#5fd3ad]" />}
                         </div>
                         <span className="text-[10px] text-[#9e9484] leading-relaxed">{m.desc}</span>
                       </button>
@@ -2607,138 +2444,127 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
               </div>
             )}
 
-            {/* DUAL BRUSH: 4. OPACITY & FLOW */}
+            {/* SUBNODE 3: SECONDARY OPACITY */}
             {activeNode === 'dual_opacity' && (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
-                  <div>
-                    <h3 className="text-sm font-mayan font-bold text-[#f2fbf7] tracking-wide">
-                      Dual Opacity & Flow
-                    </h3>
-                    <p className="text-[11px] text-[#9e9484] mt-0.5">
-                      Controls the transparency and buildup rate of the secondary brush stamp
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveNode('dual_brush')}
-                    className="text-xs text-[#5fd3ad] hover:underline cursor-pointer"
-                  >
-                    ← Back to Overview
-                  </button>
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Tip Opacity
+                  </span>
+                  <span className="text-xs font-mono text-[#5fd3ad]">
+                    {Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}%
+                  </span>
                 </div>
 
-                <div className="space-y-4 max-w-xl">
-                  {/* Opacity */}
-                  <div className="space-y-1.5 bg-[#0e1311] p-3 rounded-xl border border-[#2c3532]">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-[#e6c699]">Secondary Opacity</span>
-                      <span className="font-mono text-[#5fd3ad] font-bold">
-                        {Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="5"
-                      max="100"
-                      value={Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) / 100;
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              scatter: 0,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            opacity: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-[#5fd3ad] cursor-pointer"
-                    />
-                    <p className="text-[10px] text-[#9e9484]">
-                      Overall ceiling on secondary dab opacity across each single stroke
-                    </p>
+                <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-3">
+                  <div className="flex justify-between text-xs text-[#e6c699]">
+                    <span>Base Opacity</span>
+                    <span className="font-mono text-[#5fd3ad]">{Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}%</span>
                   </div>
-
-                  {/* Flow */}
-                  <div className="space-y-1.5 bg-[#0e1311] p-3 rounded-xl border border-[#2c3532]">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-[#e6c699]">Secondary Flow</span>
-                      <span className="font-mono text-[#5fd3ad] font-bold">
-                        {Math.round((draft.dualBrush?.flow ?? 1.0) * 100)}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="5"
-                      max="100"
-                      value={Math.round((draft.dualBrush?.flow ?? 1.0) * 100)}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) / 100;
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              scatter: 0,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            flow: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-[#5fd3ad] cursor-pointer"
-                    />
-                    <p className="text-[10px] text-[#9e9484]">
-                      Per-dab deposition speed; lower flow allows multiple overlapping dabs to build up smoothly
-                    </p>
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    value={Math.round((draft.dualBrush?.opacity ?? 1.0) * 100)}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) / 100;
+                      setDraft((d) => ({
+                        ...d,
+                        dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), opacity: val },
+                      }));
+                    }}
+                    className="w-full mayan-range-slider cursor-pointer"
+                  />
+                  <div className="flex gap-2">
+                    {[25, 50, 75, 100].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), opacity: preset / 100 },
+                          }));
+                        }}
+                        className="flex-1 py-1 text-xs mayan-btn-stone rounded-lg cursor-pointer font-mono"
+                      >
+                        {preset}%
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* DUAL BRUSH: 5. TRANSFORM, SPACING & SCATTER */}
-            {activeNode === 'dual_transform' && (
-              <div className="space-y-5">
+            {/* SUBNODE 4: SECONDARY FLOW */}
+            {activeNode === 'dual_flow' && (
+              <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
-                  <div>
-                    <h3 className="text-sm font-mayan font-bold text-[#f2fbf7] tracking-wide">
-                      Dual Transform, Spacing & Scatter
-                    </h3>
-                    <p className="text-[11px] text-[#9e9484] mt-0.5">
-                      Configure geometry, ratio, scattering, and rotation dynamics for the secondary dab
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveNode('dual_brush')}
-                    className="text-xs text-[#5fd3ad] hover:underline cursor-pointer"
-                  >
-                    ← Back to Overview
-                  </button>
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Tip Flow
+                  </span>
+                  <span className="text-xs font-mono text-[#5fd3ad]">
+                    {Math.round((draft.dualBrush?.flow ?? 1.0) * 100)}%
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-3xl">
-                  {/* Size Ratio */}
-                  <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-[#e6c699]">Size Ratio</span>
-                      <span className="font-mono text-[#5fd3ad] font-bold">
-                        {Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}%
-                      </span>
+                <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-3">
+                  <div className="flex justify-between text-xs text-[#e6c699]">
+                    <span>Deposit Rate (Flow)</span>
+                    <span className="font-mono text-[#5fd3ad]">{Math.round((draft.dualBrush?.flow ?? 1.0) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    value={Math.round((draft.dualBrush?.flow ?? 1.0) * 100)}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) / 100;
+                      setDraft((d) => ({
+                        ...d,
+                        dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), flow: val },
+                      }));
+                    }}
+                    className="w-full mayan-range-slider cursor-pointer"
+                  />
+                  <div className="flex gap-2">
+                    {[15, 35, 70, 100].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), flow: preset / 100 },
+                          }));
+                        }}
+                        className="flex-1 py-1 text-xs mayan-btn-stone rounded-lg cursor-pointer font-mono"
+                      >
+                        {preset}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUBNODE 5: SECONDARY SIZE & RATIO */}
+            {activeNode === 'dual_size' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Tip Size & Scale Ratio
+                  </span>
+                  <span className="text-xs font-mono text-[#5fd3ad]">
+                    {Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}%
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-2">
+                    <div className="flex justify-between text-xs text-[#e6c699]">
+                      <span>Size Ratio (Relative to Primary Brush)</span>
+                      <span className="font-mono text-[#5fd3ad]">{Math.round((draft.dualBrush?.sizeRatio ?? 1.0) * 100)}%</span>
                     </div>
                     <input
                       type="range"
@@ -2749,216 +2575,270 @@ export const BrushStudioModal: React.FC<BrushStudioModalProps> = ({
                         const val = parseInt(e.target.value) / 100;
                         setDraft((d) => ({
                           ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              spacing: 0.25,
-                              scatter: 0,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            sizeRatio: val,
-                          },
+                          dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), sizeRatio: val },
                         }));
                       }}
-                      className="w-full accent-[#5fd3ad] cursor-pointer"
+                      className="w-full mayan-range-slider cursor-pointer"
                     />
-                    <p className="text-[10px] text-[#9e9484]">
-                      Secondary dab diameter scaled relative to primary tip diameter
-                    </p>
-                  </div>
-
-                  {/* Spacing */}
-                  <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-[#e6c699]">Secondary Spacing</span>
-                      <span className="font-mono text-[#5fd3ad] font-bold">
-                        {Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}%
-                      </span>
+                    <div className="flex gap-2">
+                      {[50, 75, 100, 150, 200].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            setDraft((d) => ({
+                              ...d,
+                              dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), sizeRatio: preset / 100 },
+                            }));
+                          }}
+                          className="flex-1 py-1 text-xs mayan-btn-stone rounded-lg cursor-pointer font-mono"
+                        >
+                          {preset}%
+                        </button>
+                      ))}
                     </div>
-                    <input
-                      type="range"
-                      min="5"
-                      max="150"
-                      value={Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) / 100;
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              scatter: 0,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            spacing: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-[#5fd3ad] cursor-pointer"
-                    />
-                    <p className="text-[10px] text-[#9e9484]">
-                      Distance between consecutive secondary stamp deposits
-                    </p>
                   </div>
 
-                  {/* Scatter */}
-                  <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-[#e6c699]">Scatter Offset</span>
-                      <span className="font-mono text-[#5fd3ad] font-bold">
-                        {Math.round(draft.dualBrush?.scatter ?? 0)}%
-                      </span>
+                  <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-2">
+                    <div className="flex justify-between text-xs text-[#e6c699]">
+                      <span>Explicit Pixel Diameter (Optional)</span>
+                      <span className="font-mono text-[#5fd3ad]">{draft.dualBrush?.size ? `${draft.dualBrush.size} px` : 'Auto (Inherit)'}</span>
                     </div>
                     <input
                       type="range"
                       min="0"
-                      max="100"
-                      value={Math.round(draft.dualBrush?.scatter ?? 0)}
+                      max="250"
+                      value={draft.dualBrush?.size ?? 0}
                       onChange={(e) => {
                         const val = parseInt(e.target.value);
                         setDraft((d) => ({
                           ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            scatter: val,
-                          },
+                          dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), size: val > 0 ? val : undefined },
                         }));
                       }}
-                      className="w-full accent-[#5fd3ad] cursor-pointer"
+                      className="w-full mayan-range-slider cursor-pointer"
                     />
-                    <p className="text-[10px] text-[#9e9484]">
-                      Random displacement perpendicular to the stroke tangent
-                    </p>
                   </div>
+                </div>
+              </div>
+            )}
 
-                  {/* Rotation Angle */}
-                  <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-[#e6c699]">Rotation Angle</span>
-                      <span className="font-mono text-[#5fd3ad] font-bold">
-                        {Math.round(draft.dualBrush?.rotation ?? 0)}°
-                      </span>
-                    </div>
+            {/* SUBNODE 6: SECONDARY RATIO & ASPECT */}
+            {activeNode === 'dual_ratio' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Tip Ratio & Roundness
+                  </span>
+                  <span className="text-xs font-mono text-[#5fd3ad]">
+                    {Math.round((draft.dualBrush?.roundness ?? 1.0) * 100)}%
+                  </span>
+                </div>
+
+                <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-3">
+                  <div className="flex justify-between text-xs text-[#e6c699]">
+                    <span>Aspect Ratio (Roundness)</span>
+                    <span className="font-mono text-[#5fd3ad]">{Math.round((draft.dualBrush?.roundness ?? 1.0) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    value={Math.round((draft.dualBrush?.roundness ?? 1.0) * 100)}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) / 100;
+                      setDraft((d) => ({
+                        ...d,
+                        dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), roundness: val },
+                      }));
+                    }}
+                    className="w-full mayan-range-slider cursor-pointer"
+                  />
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#2c3532]">
+                    <label className="flex items-center gap-2 text-xs text-[#e6c699] cursor-pointer bg-[#141817] p-2 rounded-lg border border-[#2c3532]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(draft.dualBrush?.flipX)}
+                        onChange={(e) => {
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), flipX: e.target.checked },
+                          }));
+                        }}
+                        className="accent-[#5fd3ad]"
+                      />
+                      <span>Flip Horizontal</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 text-xs text-[#e6c699] cursor-pointer bg-[#141817] p-2 rounded-lg border border-[#2c3532]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(draft.dualBrush?.flipY)}
+                        onChange={(e) => {
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), flipY: e.target.checked },
+                          }));
+                        }}
+                        className="accent-[#5fd3ad]"
+                      />
+                      <span>Flip Vertical</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUBNODE 7: SECONDARY SPACING */}
+            {activeNode === 'dual_spacing' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Tip Dab Spacing
+                  </span>
+                  <span className="text-xs font-mono text-[#5fd3ad]">
+                    {Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}%
+                  </span>
+                </div>
+
+                <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-3">
+                  <div className="flex justify-between text-xs text-[#e6c699]">
+                    <span>Dab Spacing (Fraction of Radius)</span>
+                    <span className="font-mono text-[#5fd3ad]">{Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="150"
+                    value={Math.round((draft.dualBrush?.spacing ?? 0.25) * 100)}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) / 100;
+                      setDraft((d) => ({
+                        ...d,
+                        dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, scatter: 0, intensity: 0.8, rotation: 0 }), spacing: val },
+                      }));
+                    }}
+                    className="w-full mayan-range-slider cursor-pointer"
+                  />
+                  <div className="flex gap-2">
+                    {[10, 25, 50, 100].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, scatter: 0, intensity: 0.8, rotation: 0 }), spacing: preset / 100 },
+                          }));
+                        }}
+                        className="flex-1 py-1 text-xs mayan-btn-stone rounded-lg cursor-pointer font-mono"
+                      >
+                        {preset}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUBNODE 8: SECONDARY ROTATION */}
+            {activeNode === 'dual_rotation' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Tip Rotation & Direction
+                  </span>
+                  <span className="text-xs font-mono text-[#5fd3ad]">
+                    {Math.round(draft.dualBrush?.rotation ?? 0)}°
+                  </span>
+                </div>
+
+                <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-3">
+                  <div className="flex justify-between text-xs text-[#e6c699]">
+                    <span>Fixed Angle</span>
+                    <span className="font-mono text-[#5fd3ad]">{Math.round(draft.dualBrush?.rotation ?? 0)}°</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    value={Math.round(draft.dualBrush?.rotation ?? 0)}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setDraft((d) => ({
+                        ...d,
+                        dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8 }), rotation: val },
+                      }));
+                    }}
+                    className="w-full mayan-range-slider cursor-pointer"
+                  />
+
+                  <label className="flex items-center gap-2 text-xs text-[#e6c699] cursor-pointer bg-[#141817] p-2.5 rounded-lg border border-[#2c3532] mt-2">
                     <input
-                      type="range"
-                      min="0"
-                      max="360"
-                      value={Math.round(draft.dualBrush?.rotation ?? 0)}
+                      type="checkbox"
+                      checked={Boolean(draft.dualBrush?.followStroke)}
                       onChange={(e) => {
-                        const val = parseInt(e.target.value);
                         setDraft((d) => ({
                           ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              scatter: 0,
-                              intensity: 0.8,
-                            }),
-                            rotation: val,
-                          },
+                          dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, scatter: 0, intensity: 0.8, rotation: 0 }), followStroke: e.target.checked },
                         }));
                       }}
-                      className="w-full accent-[#5fd3ad] cursor-pointer"
+                      className="accent-[#5fd3ad]"
                     />
-                    <p className="text-[10px] text-[#9e9484]">
-                      Static rotation offset applied to the secondary stamp
-                    </p>
-                  </div>
+                    <span>Follow Stroke Direction (Dynamic Tangent Orientation)</span>
+                  </label>
+                </div>
+              </div>
+            )}
 
-                  {/* Intensity / Pattern Strength */}
-                  <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-[#e6c699]">Intensity / Contrast</span>
-                      <span className="font-mono text-[#5fd3ad] font-bold">
-                        {Math.round((draft.dualBrush?.intensity ?? 0.8) * 100)}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="10"
-                      max="100"
-                      value={Math.round((draft.dualBrush?.intensity ?? 0.8) * 100)}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value) / 100;
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              scatter: 0,
-                              rotation: 0,
-                            }),
-                            intensity: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-[#5fd3ad] cursor-pointer"
-                    />
-                    <p className="text-[10px] text-[#9e9484]">
-                      Secondary texture contrast depth against the primary dab
-                    </p>
-                  </div>
+            {/* SUBNODE 9: SECONDARY SCATTER */}
+            {activeNode === 'dual_scatter' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-[#2c3532] pb-2">
+                  <span className="text-sm font-mayan font-bold text-[#5fd3ad] uppercase tracking-wide">
+                    Secondary Tip Scatter & Jitter
+                  </span>
+                  <span className="text-xs font-mono text-[#5fd3ad]">
+                    {Math.round(draft.dualBrush?.scatter ?? 0)}%
+                  </span>
+                </div>
 
-                  {/* Texture Scale */}
-                  <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="font-semibold text-[#e6c699]">Texture Scale</span>
-                      <span className="font-mono text-[#5fd3ad] font-bold">
-                        {draft.dualBrush?.textureScale ?? 100}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="25"
-                      max="300"
-                      value={draft.dualBrush?.textureScale ?? 100}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        setDraft((d) => ({
-                          ...d,
-                          dualBrush: {
-                            ...(d.dualBrush || {
-                              enabled: true,
-                              texture: 'charcoal',
-                              blendMode: 'multiply',
-                              sizeRatio: 1.0,
-                              spacing: 0.25,
-                              scatter: 0,
-                              intensity: 0.8,
-                              rotation: 0,
-                            }),
-                            textureScale: val,
-                          },
-                        }));
-                      }}
-                      className="w-full accent-[#5fd3ad] cursor-pointer"
-                    />
-                    <p className="text-[10px] text-[#9e9484]">
-                      Zoom factor for secondary grain texture repetition
-                    </p>
+                <div className="bg-[#0e1311] p-3 rounded-xl border border-[#2c3532] space-y-3">
+                  <div className="flex justify-between text-xs text-[#e6c699]">
+                    <span>Scatter Radius Fraction</span>
+                    <span className="font-mono text-[#5fd3ad]">{Math.round(draft.dualBrush?.scatter ?? 0)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={Math.round(draft.dualBrush?.scatter ?? 0)}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setDraft((d) => ({
+                        ...d,
+                        dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, intensity: 0.8, rotation: 0 }), scatter: val },
+                      }));
+                    }}
+                    className="w-full mayan-range-slider cursor-pointer"
+                  />
+                  <div className="flex gap-2">
+                    {[0, 15, 35, 75].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          setDraft((d) => ({
+                            ...d,
+                            dualBrush: { ...(d.dualBrush || { enabled: true, texture: 'charcoal', blendMode: 'multiply', sizeRatio: 1.0, spacing: 0.25, intensity: 0.8, rotation: 0 }), scatter: preset },
+                          }));
+                        }}
+                        className="flex-1 py-1 text-xs mayan-btn-stone rounded-lg cursor-pointer font-mono"
+                      >
+                        {preset}%
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>

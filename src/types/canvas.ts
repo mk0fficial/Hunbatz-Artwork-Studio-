@@ -534,19 +534,9 @@ export interface DualBrushConfig {
     | 'charcoal_grit'
     | 'stipple'
     | 'canvas_weave';
-  shapeTextureUrl?: string;
-  texture?: BrushTexture | string;
-  blendMode:
-    | 'multiply'
-    | 'mask'
-    | 'subtract'
-    | 'overlay'
-    | 'darken'
-    | 'lighten'
-    | 'color-dodge'
-    | 'screen'
-    | 'linear-burn'
-    | string;
+  shapeTextureUrl?: string; // Custom stamp / texture URL for secondary tip
+  texture: BrushTexture | string;
+  blendMode: 'multiply' | 'mask' | 'subtract' | 'overlay' | 'darken';
   size?: number; // base secondary pixel size (e.g. 1 to 200px)
   sizeRatio: number; // 0.1 to 3.0 (fraction of primary brush size)
   opacity?: number; // 0 to 1.0 (Opacity)
@@ -555,6 +545,11 @@ export interface DualBrushConfig {
   scatter: number; // 0 to 1.0
   intensity: number; // 0.0 to 1.0 (Pattern intensity / strength slider, Krita standard)
   rotation: number; // 0 to 360 deg
+  roundness?: number; // 0.01 to 1.0 (Aspect ratio)
+  hardness?: number; // 0.0 to 1.0 (Edge softness)
+  followStroke?: boolean; // rotate along stroke direction
+  flipX?: boolean;
+  flipY?: boolean;
   colorDynamics?: {
     hueJitter?: number; // 0 to 1.0
     saturationJitter?: number; // 0 to 1.0

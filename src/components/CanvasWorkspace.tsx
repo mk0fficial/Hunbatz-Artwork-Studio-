@@ -159,6 +159,7 @@ interface CanvasWorkspaceProps {
   initialTransformMode?: TransformMode | null;
   onClearInitialTransformMode?: () => void;
   onSelectionChange?: (selection: { isActive: boolean; maskCanvas: HTMLCanvasElement | null }) => void;
+  onMaskSelection?: () => void;
   clearSelectionSignal?: number;
   hwAcceleration?: boolean;
   uiScale?: number;
@@ -209,31 +210,6 @@ function getTightAlphaBounds(
   };
 }
 
-export function getEffectiveBrushSizePx(brushSize: number | undefined, activeBrush: Brush): number {
-  if (brushSize !== undefined && brushSize > 0) {
-    const percent = brushSize <= 100 ? brushSize : (brushSize / 400) * 100;
-    return Math.max(1, Math.round((percent / 100) * 400));
-  }
-  const rawFallback = Number(activeBrush.size) || Number((activeBrush as any).baseSize) || 24;
-  const percent = rawFallback <= 100 ? rawFallback : (rawFallback / 400) * 100;
-  return Math.max(1, Math.round((percent / 100) * 400));
-}
-
-export function isHexColorDark(hex: string): boolean {
-  if (!hex || !hex.startsWith('#')) return false;
-  const clean = hex.slice(1);
-  if (clean.length === 3) {
-    const r = parseInt(clean[0] + clean[0], 16) || 0;
-    const g = parseInt(clean[1] + clean[1], 16) || 0;
-    const b = parseInt(clean[2] + clean[2], 16) || 0;
-    return (r * 0.299 + g * 0.587 + b * 0.114) < 128;
-  }
-  const r = parseInt(clean.slice(0, 2), 16) || 0;
-  const g = parseInt(clean.slice(2, 4), 16) || 0;
-  const b = parseInt(clean.slice(4, 6), 16) || 0;
-  return (r * 0.299 + g * 0.587 + b * 0.114) < 128;
-}
-
 function applyProcessedMask(
   targetCtx: CanvasRenderingContext2D,
   mask: LayerMask,
@@ -259,16 +235,12 @@ function applyProcessedMask(
 
   for (let i = 0; i < len; i += 4) {
     const a = d[i + 3];
-    if (a === 0) {
-      d[i + 3] = Math.round((1 - density) * 255);
-      continue;
-    }
     const r = d[i];
     const g = d[i + 1];
     const b = d[i + 2];
     const lum = (r * 77 + g * 150 + b * 29) >> 8;
     const reveal = (lum * a) / 65025;
-    const effectiveAlpha = 1 - density * (1 - reveal);
+    const effectiveAlpha = (1 - density) + density * reveal;
     d[i + 3] = Math.round(effectiveAlpha * 255);
   }
 
@@ -326,6 +298,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   onDrawingStart,
   vectorLayerConfig,
   onSelectionChange,
+  onMaskSelection,
   clearSelectionSignal,
   hwAcceleration = true,
   uiScale = 1,
@@ -1073,9 +1046,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
       gBuffer.height = canvasHeight;
       const gCtx = gBuffer.getContext('2d')!;
 
-      const groupChildren = layers.filter(
-        (l) => (l.parentId === group.id || l.groupId === group.id) && l.visible
-      );
+      const groupChildren = layers.filter((l) => l.parentId === group.id && l.visible);
       for (let ci = 0; ci < groupChildren.length; ci++) {
         const cLayer = groupChildren[ci];
 
@@ -1131,10 +1102,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         continue;
       }
 
-      if (
-        (layer.parentId || layer.groupId) &&
-        layers.some((l) => (l.id === layer.parentId || l.id === layer.groupId) && l.type === 'group')
-      ) {
+      if (layer.parentId && layers.some((l) => l.id === layer.parentId && l.type === 'group')) {
         i++;
         continue;
       }
@@ -1794,14 +1762,14 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     lastStrokePointRef.current = pt;
     strokeStartPointRef.current = pt;
 
-    const maskLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
-    const isPaintingMask = Boolean(maskLayer && maskLayer.mask);
+    const maskTargetLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
+    const isPaintingMask = Boolean(maskTargetLayer && maskTargetLayer.mask);
     const activeSub =
       activeLayer.type === 'smart' && activeLayer.smartLayers
         ? activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) || activeLayer.smartLayers[0]
         : null;
-    const targetCanvas = isPaintingMask && maskLayer?.mask
-      ? maskLayer.mask.canvas
+    const targetCanvas = isPaintingMask && maskTargetLayer?.mask
+      ? maskTargetLayer.mask.canvas
       : activeSub
       ? activeSub.canvas
       : activeLayer.canvas;
@@ -2358,26 +2326,35 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     const prevPt = currentStrokePoints.current[currentStrokePoints.current.length - 1];
     currentStrokePoints.current.push(newPt);
 
-    const maskLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
-    const isPaintingMask = Boolean(maskLayer && maskLayer.mask);
+    const maskTargetLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
+    const isPaintingMask = Boolean(maskTargetLayer && maskTargetLayer.mask);
     const activeSub =
       activeLayer.type === 'smart' && activeLayer.smartLayers
         ? activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) || activeLayer.smartLayers[0]
         : null;
-    const targetCtx = isPaintingMask && maskLayer?.mask
-      ? maskLayer.mask.ctx
+    const targetCtx = isPaintingMask && maskTargetLayer?.mask
+      ? maskTargetLayer.mask.ctx
       : activeSub
       ? activeSub.ctx
       : activeLayer.ctx;
 
     const isEraser = activeTool === 'eraser';
+    const isDarkColor =
+      currentColor.toLowerCase() === '#000000' ||
+      (currentColor.startsWith('#') &&
+        parseInt(currentColor.slice(1, 3) || '0', 16) < 80 &&
+        parseInt(currentColor.slice(3, 5) || '0', 16) < 80 &&
+        parseInt(currentColor.slice(5, 7) || '0', 16) < 80);
+
     const drawColor = isPaintingMask
-      ? isEraser || currentColor.toLowerCase() === '#000000' || isHexColorDark(currentColor)
+      ? isEraser
+        ? '#000000'
+        : isDarkColor
         ? '#000000'
         : '#ffffff'
       : currentColor;
 
-    const effectiveBrushSize = getEffectiveBrushSizePx(brushSize, activeBrush);
+    const effectiveBrushSize = Math.max(1, brushSize || activeBrush.size || (activeBrush as any).baseSize || 20);
 
     if (activeTool === 'brush' || activeTool === 'eraser') {
       const bufferCanvas = getStrokeBuffer(canvasWidth, canvasHeight);
@@ -2426,7 +2403,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         targetCtx.drawImage(backupCanvas, 0, 0);
 
         if (isPaintingMask) {
-          targetCtx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
+          targetCtx.globalCompositeOperation = 'source-over';
         } else if (isEraser) {
           targetCtx.globalCompositeOperation = 'destination-out';
         } else {
@@ -2632,34 +2609,43 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
 
       const activeLayer = layers.find((l) => l.id === activeLayerId);
       if (activeLayer) {
-        const maskLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
-        const isPaintingMask = Boolean(maskLayer && maskLayer.mask);
-        const activeSub =
-          activeLayer.type === 'smart' && activeLayer.smartLayers
-            ? activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) || activeLayer.smartLayers[0]
-            : null;
-        const targetCtx = isPaintingMask && maskLayer?.mask
-          ? maskLayer.mask.ctx
-          : activeSub
-          ? activeSub.ctx
-          : activeLayer.ctx;
-
-        const isEraser = activeTool === 'eraser';
-        const drawColor = isPaintingMask
-          ? isEraser || currentColor.toLowerCase() === '#000000' || isHexColorDark(currentColor)
-            ? '#000000'
-            : '#ffffff'
-          : currentColor;
-
         // If user made a stationary tap without moving (single stamp dot):
         if (!strokeMovedRef.current && strokeStartPointRef.current && (activeTool === 'brush' || activeTool === 'eraser')) {
           const startPt = strokeStartPointRef.current;
+          const maskTargetLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
+          const isPaintingMask = Boolean(maskTargetLayer && maskTargetLayer.mask);
+          const activeSub =
+            activeLayer.type === 'smart' && activeLayer.smartLayers
+              ? activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) || activeLayer.smartLayers[0]
+              : null;
+          const targetCtx = isPaintingMask && maskTargetLayer?.mask
+            ? maskTargetLayer.mask.ctx
+            : activeSub
+            ? activeSub.ctx
+            : activeLayer.ctx;
+
+          const isEraser = activeTool === 'eraser';
+          const isDarkColor =
+            currentColor.toLowerCase() === '#000000' ||
+            (currentColor.startsWith('#') &&
+              parseInt(currentColor.slice(1, 3) || '0', 16) < 80 &&
+              parseInt(currentColor.slice(3, 5) || '0', 16) < 80 &&
+              parseInt(currentColor.slice(5, 7) || '0', 16) < 80);
+
+          const drawColor = isPaintingMask
+            ? isEraser
+              ? '#000000'
+              : isDarkColor
+              ? '#000000'
+              : '#ffffff'
+            : currentColor;
+
           const bufferCanvas = getStrokeBuffer(canvasWidth, canvasHeight);
           const bufferCtx = bufferCanvas.getContext('2d');
           const backupCanvas = getStrokeBaseBackup(canvasWidth, canvasHeight);
 
           if (bufferCtx && backupCanvas) {
-            const tapSize = getEffectiveBrushSizePx(brushSize, activeBrush);
+            const tapSize = Math.max(1, brushSize || activeBrush.size || (activeBrush as any).baseSize || 20);
             renderStrokeSegment(
               bufferCtx,
               startPt,
@@ -2676,7 +2662,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
             targetCtx.drawImage(backupCanvas, 0, 0);
 
             if (isPaintingMask) {
-              targetCtx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
+              targetCtx.globalCompositeOperation = 'source-over';
             } else if (isEraser) {
               targetCtx.globalCompositeOperation = 'destination-out';
             } else {
@@ -2689,7 +2675,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
           }
         }
 
-        const recordedSize = getEffectiveBrushSizePx(brushSize, activeBrush);
+        const recordedSize = Math.max(1, brushSize || activeBrush.size || (activeBrush as any).baseSize || 20);
         onRecordStroke({
           tool: activeTool,
           brushId: activeBrush.id,
@@ -2702,15 +2688,15 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
 
         if (activeLayer.type === 'smart' && activeLayer.smartLayers) {
           renderSmartLayerCanvas(activeLayer, canvasWidth, canvasHeight);
-          const activeSubLayer =
+          const activeSub =
             activeLayer.smartLayers.find((s) => s.id === activeLayer.activeSmartSubLayerId) ||
             activeLayer.smartLayers[0];
-          if (activeSubLayer) {
+          if (activeSub) {
             const sThumb = document.createElement('canvas');
             sThumb.width = 64;
             sThumb.height = 64;
-            sThumb.getContext('2d')?.drawImage(activeSubLayer.canvas, 0, 0, 64, 64);
-            activeSubLayer.thumbnailUrl = sThumb.toDataURL();
+            sThumb.getContext('2d')?.drawImage(activeSub.canvas, 0, 0, 64, 64);
+            activeSub.thumbnailUrl = sThumb.toDataURL();
           }
         }
 
@@ -2720,12 +2706,13 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         thumbCanvas.getContext('2d')?.drawImage(activeLayer.canvas, 0, 0, 64, 64);
         activeLayer.thumbnailUrl = thumbCanvas.toDataURL();
 
-        if (maskLayer && maskLayer.mask) {
+        const mLayer = activeMaskLayerId ? layers.find((l) => l.id === activeMaskLayerId) : null;
+        if (mLayer && mLayer.mask) {
           const mThumb = document.createElement('canvas');
           mThumb.width = 64;
           mThumb.height = 64;
-          mThumb.getContext('2d')?.drawImage(maskLayer.mask.canvas, 0, 0, 64, 64);
-          maskLayer.mask.thumbnailUrl = mThumb.toDataURL();
+          mThumb.getContext('2d')?.drawImage(mLayer.mask.canvas, 0, 0, 64, 64);
+          mLayer.mask.thumbnailUrl = mThumb.toDataURL();
         }
         onUpdateLayers([...layers]);
       }
@@ -4236,8 +4223,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
               canvas && canvas.width > 0
                 ? canvas.getBoundingClientRect().width / canvas.width
                 : zoom;
-            const effectiveSizePx = getEffectiveBrushSizePx(brushSize, activeBrush);
-            const cursorDiameterPx = effectiveSizePx * canvasDisplayScale;
+            const cursorDiameterPx = brushSize * canvasDisplayScale;
 
             const rawRoundness =
               activeBrush.shape?.roundness ?? (activeBrush as any).roundness ?? 1.0;
@@ -4285,8 +4271,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
             canvas && canvas.width > 0
               ? canvas.getBoundingClientRect().width / canvas.width
               : zoom;
-          const effectiveSizePx = getEffectiveBrushSizePx(brushSize, activeBrush);
-          const cursorDiameterPx = effectiveSizePx * canvasDisplayScale;
+          const cursorDiameterPx = brushSize * canvasDisplayScale;
           const rawRoundness =
             activeBrush.shape?.roundness ?? (activeBrush as any).roundness ?? 1.0;
           const roundness =
@@ -4316,7 +4301,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
                 </div>
                 <div className="bg-[#121418]/95 backdrop-blur-md border border-white/20 text-white font-mono font-bold text-xs px-3.5 py-1.5 rounded-full shadow-2xl flex items-center gap-2">
                   <span className="text-blue-400 font-semibold">Brush Size:</span>
-                  <span>{Math.round(brushSize)}% ({effectiveSizePx} px)</span>
+                  <span>{Math.round(brushSize)} px</span>
                 </div>
               </div>
             </div>
@@ -4462,6 +4447,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
           onChangeFeather={handleChangeSelectionFeather}
           onFillSelection={handleFillSelection}
           onFillPattern={handleFillPattern}
+          onMaskSelection={onMaskSelection}
           onCopyPasteSelection={handleCopyPasteSelectedArea}
           onCopyPng={handleCopySelectedAreaPng}
           onClearSelection={handleClearSelectedArea}

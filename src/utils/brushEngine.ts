@@ -471,8 +471,15 @@ function applyDualBrushToDab(
 
   sCtx.fillStyle = '#ffffff';
 
-  // 1. Predefined Stamp Option Engine
-  if (stampShape === 'circle') {
+  // 0. Custom or Predefined Stamp Texture URL
+  if (dualBrush.shapeTextureUrl) {
+    const tipImg = preloadKritaTexture(dualBrush.shapeTextureUrl);
+    if (tipImg && tipImg.complete && tipImg.naturalWidth > 0) {
+      const rx = secRadius * (dualBrush.roundness || 1.0);
+      const ry = secRadius;
+      sCtx.drawImage(tipImg, -rx, -ry, rx * 2, ry * 2);
+    }
+  } else if (stampShape === 'circle') {
     const grad = sCtx.createRadialGradient(0, 0, 0, 0, 0, secRadius);
     grad.addColorStop(0, 'rgba(255,255,255,1)');
     grad.addColorStop(0.7, 'rgba(255,255,255,0.9)');
@@ -556,41 +563,22 @@ function applyDualBrushToDab(
       sCtx.stroke();
     }
   } else {
-    // 2. Texture Library or Custom Tip/Texture Image
-    const customSecUrl =
-      dualBrush.shapeTextureUrl ||
-      (typeof dualBrush.texture === 'string' &&
-      (dualBrush.texture.startsWith('/') ||
-        dualBrush.texture.startsWith('http') ||
-        dualBrush.texture.startsWith('data:'))
-        ? dualBrush.texture
-        : null);
-    const customSecImg = customSecUrl ? preloadKritaTexture(customSecUrl) : null;
-
-    if (customSecImg && customSecImg.complete && customSecImg.naturalWidth > 0) {
-      sCtx.drawImage(
-        customSecImg,
-        -secRadius,
-        -secRadius,
-        secRadius * 2,
-        secRadius * 2
-      );
-    } else {
-      const secTexture: string = String(dualBrush.texture || 'soft_round');
-      if (secTexture === 'hard_round') {
-        sCtx.beginPath();
-        sCtx.arc(0, 0, secRadius, 0, Math.PI * 2);
-        sCtx.fill();
-      } else if (secTexture === 'soft_round') {
-        const grad = sCtx.createRadialGradient(0, 0, 0, 0, 0, secRadius);
-        grad.addColorStop(0, 'rgba(255,255,255,1)');
-        grad.addColorStop(0.5, 'rgba(255,255,255,0.7)');
-        grad.addColorStop(1, 'rgba(255,255,255,0)');
-        sCtx.fillStyle = grad;
-        sCtx.beginPath();
-        sCtx.arc(0, 0, secRadius, 0, Math.PI * 2);
-        sCtx.fill();
-      } else if (secTexture === 'charcoal' || secTexture === 'chalk') {
+    // 2. Fallback Texture library
+    const secTexture: string = String(dualBrush.texture || 'soft_round');
+    if (secTexture === 'hard_round') {
+      sCtx.beginPath();
+      sCtx.arc(0, 0, secRadius, 0, Math.PI * 2);
+      sCtx.fill();
+    } else if (secTexture === 'soft_round') {
+      const grad = sCtx.createRadialGradient(0, 0, 0, 0, 0, secRadius);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.5, 'rgba(255,255,255,0.7)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      sCtx.fillStyle = grad;
+      sCtx.beginPath();
+      sCtx.arc(0, 0, secRadius, 0, Math.PI * 2);
+      sCtx.fill();
+    } else if (secTexture === 'charcoal' || secTexture === 'chalk') {
       const count = Math.max(12, Math.round(secRadius * 2.5));
       for (let i = 0; i < count; i++) {
         const ang = Math.random() * Math.PI * 2;
@@ -1979,8 +1967,7 @@ export function generateBrushSwatch(
   height: number = 32,
   color: string = '#5fd3ad'
 ): string {
-  if (!brush) return '';
-  const cacheKey = `${brush.id || 'b'}_${brush.name || 'unnamed'}_${brush.size || 24}_${brush.opacity ?? 1}_${brush.shape?.texture || brush.texture || 'default'}_${(brush as any).shapeTextureUrl || ''}_${width}x${height}_${color}`;
+  const cacheKey = `${brush.id}_${brush.name}_${brush.size}_${brush.opacity}_${brush.shape?.texture || brush.texture}_${(brush as any).shapeTextureUrl || ''}_${width}x${height}_${color}`;
   if (swatchCache.has(cacheKey)) {
     return swatchCache.get(cacheKey)!;
   }
