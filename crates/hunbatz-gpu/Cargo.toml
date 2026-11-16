@@ -1,0 +1,10 @@
+[package]
+name = "hunbatz-gpu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hunbatz-core = { path = "../hunbatz-core" }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+glam = { workspace = true }
