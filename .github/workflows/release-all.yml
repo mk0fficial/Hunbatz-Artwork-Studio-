@@ -1,0 +1,184 @@
+name: Release Hunbatz All 6 Platforms
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # 1. Windows (.exe/.zip), Linux (.tar.gz / .AppImage), and macOS (.dmg)
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - platform: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libvulkan-dev libasound2-dev pkg-config
+
+      - name: Build Desktop Release Binary
+        run: cargo build --release --target ${{ matrix.target }} -p hunbatz-desktop
+
+      # Package Windows .zip
+      - name: Package Windows Release
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/${{ matrix.target }}/release/hunbatz-desktop.exe" "dist/Hunbatz-Studio-Windows-x64.exe"
+          Compress-Archive -Path "dist/Hunbatz-Studio-Windows-x64.exe" -DestinationPath "dist/Hunbatz-Studio-Windows-x64.zip"
+
+      # Package Linux .tar.gz
+      - name: Package Linux Release
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/hunbatz-desktop dist/hunbatz-studio-linux-x64
+          chmod +x dist/hunbatz-studio-linux-x64
+          tar -czvf dist/Hunbatz-Studio-Linux-x64.tar.gz -C dist hunbatz-studio-linux-x64
+          rm dist/hunbatz-studio-linux-x64
+
+      # Package macOS .app & .dmg
+      - name: Package macOS .dmg
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist/HunbatzStudio.app/Contents/MacOS
+          cp target/${{ matrix.target }}/release/hunbatz-desktop dist/HunbatzStudio.app/Contents/MacOS/HunbatzStudio
+          hdiutil create -volname "Hunbatz Studio" -srcfolder dist/HunbatzStudio.app -ov -format UDZO dist/Hunbatz-Studio-macOS.dmg
+          rm -rf dist/HunbatzStudio.app
+
+      - name: Upload Desktop Release Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/*
+
+  # 2. Android (.apk)
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust Android Targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Setup Java & Android SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install NDK & Build Rust .so
+        run: |
+          sdkmanager --install "ndk;27.1.12297006"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> $GITHUB_ENV
+          cargo install cargo-ndk
+          cargo ndk -t arm64-v8a -t x86_64 --platform 28 -o android/app/src/main/jniLibs build --release -p hunbatz-ffi
+
+      - name: Build Unsigned Release APK
+        if: hashFiles('android/gradlew') != ''
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Upload Android Release Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: android/app/build/outputs/apk/release/*.apk
+
+  # 3. iOS & iPadOS (.ipa)
+  apple:
+    name: iOS & iPadOS IPA
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust iOS Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-darwin
+
+      - name: Build Rust iOS Static Library & Swift Bindings
+        run: |
+          cargo build --release --target aarch64-apple-ios -p hunbatz-ffi
+          cargo build --release --target aarch64-apple-darwin -p hunbatz-ffi
+          mkdir -p ios/HunbatzApp/Generated
+          cargo run -p hunbatz-ffi --features=uniffi/cli -- generate \
+            --library target/aarch64-apple-darwin/release/libhunbatz_ffi.dylib \
+            --language swift \
+            --out-dir ios/HunbatzApp/Generated
+
+      - name: Package Unsigned .ipa (if Xcode project exists)
+        if: hashFiles('ios/*.xcodeproj/project.pbxproj') != ''
+        run: |
+          mkdir -p dist/Payload
+          xcodebuild -project ios/*.xcodeproj -scheme HunbatzApp -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=$PWD/build-ios
+          cp -r build-ios/*.app dist/Payload/
+          cd dist && zip -r Hunbatz-Studio-iOS-iPadOS-Unsigned.ipa Payload && rm -rf Payload
+
+      - name: Upload iOS Release Asset
+        if: hashFiles('dist/*.ipa') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-ios
+          path: dist/*.ipa
+
+  # 4. Attach ALL 6 Platform Assets to the GitHub Release Page
+  publish-release:
+    name: Publish GitHub Release
+    needs: [desktop, android, apple]
+    if: always() && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Built Platform Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-release-assets
+          merge-multiple: true
+
+      - name: Create Release with All Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Hunbatz Studio ${{ github.ref_name }}
+          body: |
+            Automated builds for Windows (.exe, .zip), Linux (.tar.gz), macOS (.dmg), Android (.apk), and iOS/iPadOS (.ipa).
+          files: all-release-assets/*
