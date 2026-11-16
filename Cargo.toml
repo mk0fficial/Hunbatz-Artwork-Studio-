@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/hunbatz-core",
+    "crates/hunbatz-gpu",
+    "crates/hunbatz-ffi",
+    "desktop",
+]
+
+[workspace.dependencies]
+wgpu = "24.0"
+glam = "0.29"
+bytemuck = { version = "1.18", features = ["derive"] }
+thiserror = "2.0"
+uniffi = "0.28"
