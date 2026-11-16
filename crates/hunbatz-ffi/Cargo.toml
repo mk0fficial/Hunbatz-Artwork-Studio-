@@ -1,0 +1,17 @@
+[package]
+name = "hunbatz-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "hunbatz_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+hunbatz-core = { path = "../hunbatz-core" }
+glam = { workspace = true }
+uniffi = { workspace = true, features = ["cli"] }
