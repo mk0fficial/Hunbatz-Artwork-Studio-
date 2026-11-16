@@ -1,3 +1,20 @@
+import {
+  generateDepthAnythingV2,
+  processDepthLightenDarken,
+  processDepthContrast,
+  processDepthAutoLevels,
+  processDepthInvert,
+  processDepthSeed,
+  processDepthNoise,
+  DepthAnythingV2Options,
+  DepthNoiseOptions,
+} from './depthAnythingV2';
+import {
+  generateDepthAnythingV3,
+  processDepthBlur,
+  DepthAnythingV3Options,
+} from './depthAnythingV3';
+
 export interface RelightLightSource {
   id: string;
   name: string;
@@ -21,7 +38,7 @@ export interface RelightSettings {
   ignoreInkLines: boolean; // Prevents black comic ink lines from becoming trenches
   respectSubjectAlpha: boolean; // Clips lighting to foreground subject
   editSubMode: 'lighting' | 'depth_sculpt';
-  viewMode: 'lit' | 'unlit' | 'depth' | 'normals';
+  viewMode: 'lit' | 'unlit' | 'depth' | 'normals' | 'lighting_only';
   sculptTargetDepth: number; // 0.0 (Far) to 1.0 (Close)
   sculptSmoothMode: boolean; // True = Smooth/Blur existing depth
   sculptSoftness: number; // 0.0 (Hard edge) to 1.0 (Soft airbrush gradient)
@@ -29,6 +46,10 @@ export interface RelightSettings {
   activeLightId: string;
   lights: RelightLightSource[];
   depthDataUrl?: string;
+  depthSeed?: number;
+  depthNoiseIntensity?: number;
+  depthNoiseType?: 'micro_grit' | 'perlin' | 'chisel';
+  depthMode?: 'v3_small_neural' | 'v3_safetensors' | 'v2_neural_fast' | 'v2_onnx_ai';
 }
 
 export interface RelightPreset {
@@ -235,6 +256,10 @@ export function createDefaultRelightSettings(): RelightSettings {
     sculptSoftness: 0.75,
     sculptStrength: 0.35,
     activeLightId: 'light_1',
+    depthSeed: 42,
+    depthNoiseIntensity: 0.15,
+    depthNoiseType: 'micro_grit',
+    depthMode: 'v3_small_neural',
     lights: [
       {
         id: 'light_1',
@@ -391,42 +416,178 @@ export function randomizeRelightDepth(
   layerId: string,
   width: number,
   height: number,
-  sourceCanvas?: HTMLCanvasElement
+  sourceCanvas?: HTMLCanvasElement,
+  seed?: number
 ): HTMLCanvasElement {
   pushRelightDepthHistory(layerId);
   const depthCanvas = getOrCreateRelightDepthCanvas(layerId, width, height, sourceCanvas);
   const ctx = depthCanvas.getContext('2d', { willReadFrequently: true })!;
   const imgData = ctx.getImageData(0, 0, width, height);
-  const data = imgData.data;
 
-  const randPuff = 0.4 + Math.random() * 0.55;
-  const randFreqX = 1 + Math.floor(Math.random() * 4);
-  const randFreqY = 1 + Math.floor(Math.random() * 4);
-  const randPhase = Math.random() * Math.PI * 2;
-  const randNoiseAmp = 15 + Math.random() * 25;
-
-  for (let y = 0; y < height; y++) {
-    const ny = (y / height - 0.5) * 2;
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const nx = (x / width - 0.5) * 2;
-      const cur = data[idx];
-
-      // Procedural surface harmonic ripple
-      const ripple = Math.sin(nx * randFreqX * Math.PI + randPhase) * Math.cos(ny * randFreqY * Math.PI + randPhase);
-      const pillow = Math.max(0, 1 - (nx * nx + ny * ny)) * randPuff * 35;
-      const jitter = (Math.random() - 0.5) * randNoiseAmp;
-
-      const perturbed = Math.max(0, Math.min(255, Math.round(cur * 0.75 + pillow + ripple * 20 + jitter)));
-      data[idx] = perturbed;
-      data[idx + 1] = perturbed;
-      data[idx + 2] = perturbed;
-    }
-  }
+  const finalSeed = seed !== undefined ? seed : Math.floor(Math.random() * 1000000);
+  processDepthSeed(imgData.data, width, height, finalSeed);
 
   ctx.putImageData(imgData, 0, 0);
+  relightOutputCache.delete(layerId);
   bumpRelightDepthRevision(layerId);
   return depthCanvas;
+}
+
+export function applyRelightDepthLighten(layerId: string, amount = 25, fallbackCanvas?: HTMLCanvasElement): string | null {
+  let canvas = layerDepthCanvasCache.get(layerId);
+  if (!canvas && fallbackCanvas) {
+    canvas = getOrCreateRelightDepthCanvas(layerId, fallbackCanvas.width, fallbackCanvas.height, fallbackCanvas);
+  }
+  if (!canvas) return null;
+  pushRelightDepthHistory(layerId);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  processDepthLightenDarken(imgData.data, amount);
+  ctx.putImageData(imgData, 0, 0);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return canvas.toDataURL();
+}
+
+export function applyRelightDepthDarken(layerId: string, amount = 25, fallbackCanvas?: HTMLCanvasElement): string | null {
+  return applyRelightDepthLighten(layerId, -amount, fallbackCanvas);
+}
+
+export function applyRelightDepthContrast(layerId: string, factor = 1.35, fallbackCanvas?: HTMLCanvasElement): string | null {
+  let canvas = layerDepthCanvasCache.get(layerId);
+  if (!canvas && fallbackCanvas) {
+    canvas = getOrCreateRelightDepthCanvas(layerId, fallbackCanvas.width, fallbackCanvas.height, fallbackCanvas);
+  }
+  if (!canvas) return null;
+  pushRelightDepthHistory(layerId);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  processDepthContrast(imgData.data, factor);
+  ctx.putImageData(imgData, 0, 0);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return canvas.toDataURL();
+}
+
+export function applyRelightDepthAutoLevels(layerId: string, fallbackCanvas?: HTMLCanvasElement): string | null {
+  let canvas = layerDepthCanvasCache.get(layerId);
+  if (!canvas && fallbackCanvas) {
+    canvas = getOrCreateRelightDepthCanvas(layerId, fallbackCanvas.width, fallbackCanvas.height, fallbackCanvas);
+  }
+  if (!canvas) return null;
+  pushRelightDepthHistory(layerId);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  processDepthAutoLevels(imgData.data);
+  ctx.putImageData(imgData, 0, 0);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return canvas.toDataURL();
+}
+
+export function applyRelightDepthInvert(layerId: string, fallbackCanvas?: HTMLCanvasElement): string | null {
+  let canvas = layerDepthCanvasCache.get(layerId);
+  if (!canvas && fallbackCanvas) {
+    canvas = getOrCreateRelightDepthCanvas(layerId, fallbackCanvas.width, fallbackCanvas.height, fallbackCanvas);
+  }
+  if (!canvas) return null;
+  pushRelightDepthHistory(layerId);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  processDepthInvert(imgData.data);
+  ctx.putImageData(imgData, 0, 0);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return canvas.toDataURL();
+}
+
+export function applyRelightDepthSeed(layerId: string, seed: number, fallbackCanvas?: HTMLCanvasElement): string | null {
+  let canvas = layerDepthCanvasCache.get(layerId);
+  if (!canvas && fallbackCanvas) {
+    canvas = getOrCreateRelightDepthCanvas(layerId, fallbackCanvas.width, fallbackCanvas.height, fallbackCanvas);
+  }
+  if (!canvas) return null;
+  pushRelightDepthHistory(layerId);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  processDepthSeed(imgData.data, canvas.width, canvas.height, seed);
+  ctx.putImageData(imgData, 0, 0);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return canvas.toDataURL();
+}
+
+export function applyRelightDepthNoise(
+  layerId: string,
+  options?: DepthNoiseOptions,
+  fallbackCanvas?: HTMLCanvasElement
+): string | null {
+  let canvas = layerDepthCanvasCache.get(layerId);
+  if (!canvas && fallbackCanvas) {
+    canvas = getOrCreateRelightDepthCanvas(layerId, fallbackCanvas.width, fallbackCanvas.height, fallbackCanvas);
+  }
+  if (!canvas) return null;
+  pushRelightDepthHistory(layerId);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  processDepthNoise(imgData.data, canvas.width, canvas.height, options);
+  ctx.putImageData(imgData, 0, 0);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return canvas.toDataURL();
+}
+
+export async function generateRelightDepthAnythingV2(
+  layerId: string,
+  sourceCanvas: HTMLCanvasElement,
+  options?: DepthAnythingV2Options
+): Promise<string | null> {
+  const depthCanvas = getOrCreateRelightDepthCanvas(layerId, sourceCanvas.width, sourceCanvas.height, sourceCanvas);
+  pushRelightDepthHistory(layerId);
+  await generateDepthAnythingV2(sourceCanvas, depthCanvas, options);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return depthCanvas.toDataURL();
+}
+
+export async function generateRelightDepthAnythingV3(
+  layerId: string,
+  sourceCanvas: HTMLCanvasElement,
+  options?: DepthAnythingV3Options
+): Promise<string | null> {
+  const depthCanvas = getOrCreateRelightDepthCanvas(layerId, sourceCanvas.width, sourceCanvas.height, sourceCanvas);
+  pushRelightDepthHistory(layerId);
+  await generateDepthAnythingV3(sourceCanvas, depthCanvas, options);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return depthCanvas.toDataURL();
+}
+
+export function applyRelightDepthBlur(
+  layerId: string,
+  radius = 3,
+  fallbackCanvas?: HTMLCanvasElement
+): string | null {
+  let canvas = layerDepthCanvasCache.get(layerId);
+  if (!canvas && fallbackCanvas) {
+    canvas = getOrCreateRelightDepthCanvas(layerId, fallbackCanvas.width, fallbackCanvas.height, fallbackCanvas);
+  }
+  if (!canvas) return null;
+  pushRelightDepthHistory(layerId);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  processDepthBlur(imgData.data, canvas.width, canvas.height, radius);
+  ctx.putImageData(imgData, 0, 0);
+  relightOutputCache.delete(layerId);
+  bumpRelightDepthRevision(layerId);
+  return canvas.toDataURL();
 }
 
 export function getOrCreateRelightDepthCanvas(
@@ -458,7 +619,7 @@ export function getOrCreateRelightDepthCanvas(
       autoGenerateDepthMapFromSource(
         sourceCanvas,
         depthCanvas,
-        settings?.autoPuff ?? 0.65,
+        settings?.autoPuff ?? 0.70,
         settings?.ignoreInkLines ?? true
       );
       bumpRelightDepthRevision(layerId);
@@ -470,136 +631,14 @@ export function getOrCreateRelightDepthCanvas(
 export function autoGenerateDepthMapFromSource(
   sourceCanvas: HTMLCanvasElement,
   targetDepthCanvas: HTMLCanvasElement,
-  autoPuff = 0.65,
+  autoPuff = 0.70,
   ignoreInkLines = true
 ): void {
-  const w = sourceCanvas.width;
-  const h = sourceCanvas.height;
-  if (w === 0 || h === 0) return;
-
-  const scale = Math.min(1, 320 / Math.max(w, h));
-  const sw = Math.max(16, Math.round(w * scale));
-  const sh = Math.max(16, Math.round(h * scale));
-
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = sw;
-  tempCanvas.height = sh;
-  const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true })!;
-  tCtx.drawImage(sourceCanvas, 0, 0, sw, sh);
-
-  const srcData = tCtx.getImageData(0, 0, sw, sh).data;
-  const lum = new Float32Array(sw * sh);
-  const alphaMask = new Uint8Array(sw * sh);
-
-  let transparentPixels = 0;
-  for (let i = 0; i < sw * sh; i++) {
-    const idx = i * 4;
-    const r = srcData[idx];
-    const g = srcData[idx + 1];
-    const b = srcData[idx + 2];
-    const a = srcData[idx + 3];
-    if (a < 25) transparentPixels++;
-    alphaMask[i] = a >= 25 ? 1 : 0;
-
-    const baseL = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    const warmth = Math.max(0, (r - b) / 255) * 0.12;
-    lum[i] = Math.min(1, baseL + warmth);
-  }
-
-  const closedLum = new Float32Array(lum);
-  if (ignoreInkLines) {
-    const radius = 2;
-    for (let y = 0; y < sh; y++) {
-      for (let x = 0; x < sw; x++) {
-        const i = y * sw + x;
-        if (lum[i] < 0.22 && alphaMask[i]) {
-          let maxNeighbor = lum[i];
-          for (let dy = -radius; dy <= radius; dy++) {
-            const ny = Math.min(sh - 1, Math.max(0, y + dy));
-            for (let dx = -radius; dx <= radius; dx++) {
-              const nx = Math.min(sw - 1, Math.max(0, x + dx));
-              const nVal = lum[ny * sw + nx];
-              if (nVal > maxNeighbor) maxNeighbor = nVal;
-            }
-          }
-          closedLum[i] = maxNeighbor;
-        }
-      }
-    }
-  }
-
-  const distField = new Float32Array(sw * sh);
-  const hasCutoutSilhouette = transparentPixels > sw * sh * 0.04;
-
-  if (hasCutoutSilhouette) {
-    const INF = sw + sh;
-    for (let i = 0; i < sw * sh; i++) {
-      distField[i] = alphaMask[i] ? INF : 0;
-    }
-    for (let y = 0; y < sh; y++) {
-      for (let x = 0; x < sw; x++) {
-        const i = y * sw + x;
-        if (distField[i] === 0) continue;
-        if (x > 0) distField[i] = Math.min(distField[i], distField[i - 1] + 1);
-        if (y > 0) distField[i] = Math.min(distField[i], distField[(y - 1) * sw + x] + 1);
-      }
-    }
-    let maxDist = 1;
-    for (let y = sh - 1; y >= 0; y--) {
-      for (let x = sw - 1; x >= 0; x--) {
-        const i = y * sw + x;
-        if (distField[i] === 0) continue;
-        if (x < sw - 1) distField[i] = Math.min(distField[i], distField[i + 1] + 1);
-        if (y < sh - 1) distField[i] = Math.min(distField[i], distField[(y + 1) * sw + x] + 1);
-        if (distField[i] > maxDist && distField[i] < INF) maxDist = distField[i];
-      }
-    }
-    for (let i = 0; i < sw * sh; i++) {
-      const normD = Math.min(1, distField[i] / (maxDist * 0.75 + 1));
-      distField[i] = Math.sqrt(Math.max(0, 1 - (1 - normD) * (1 - normD)));
-    }
-  } else {
-    for (let y = 0; y < sh; y++) {
-      const ny = (y / sh - 0.5) * 1.6;
-      for (let x = 0; x < sw; x++) {
-        const nx = (x / sw - 0.5) * 1.6;
-        const r2 = Math.min(1, nx * nx + ny * ny);
-        distField[y * sw + x] = Math.sqrt(Math.max(0, 1 - r2 * 0.75));
-      }
-    }
-  }
-
-  const smoothLum = boxBlurFloat(closedLum, sw, sh, 4);
-  const fineLum = boxBlurFloat(closedLum, sw, sh, 1);
-
-  const outImg = tCtx.createImageData(sw, sh);
-  const outPixels = outImg.data;
-  for (let i = 0; i < sw * sh; i++) {
-    if (!alphaMask[i] && hasCutoutSilhouette) {
-      outPixels[i * 4] = 0;
-      outPixels[i * 4 + 1] = 0;
-      outPixels[i * 4 + 2] = 0;
-      outPixels[i * 4 + 3] = 255;
-      continue;
-    }
-    const puffPart = distField[i] * autoPuff;
-    const shadingPart = (smoothLum[i] * 0.7 + fineLum[i] * 0.3) * (1 - autoPuff * 0.45);
-    const combined = Math.max(0, Math.min(1, puffPart * 0.55 + shadingPart * 0.65));
-    const val = Math.round(combined * 255);
-    outPixels[i * 4] = val;
-    outPixels[i * 4 + 1] = val;
-    outPixels[i * 4 + 2] = val;
-    outPixels[i * 4 + 3] = 255;
-  }
-  tCtx.putImageData(outImg, 0, 0);
-
-  const dCtx = targetDepthCanvas.getContext('2d', { willReadFrequently: true })!;
-  dCtx.save();
-  dCtx.imageSmoothingEnabled = true;
-  dCtx.imageSmoothingQuality = 'high';
-  dCtx.clearRect(0, 0, w, h);
-  dCtx.drawImage(tempCanvas, 0, 0, w, h);
-  dCtx.restore();
+  generateDepthAnythingV3(sourceCanvas, targetDepthCanvas, {
+    autoPuff,
+    ignoreInkLines,
+    mode: 'v3_small_neural',
+  });
 }
 
 function boxBlurFloat(src: Float32Array, w: number, h: number, radius: number): Float32Array {
@@ -666,7 +705,7 @@ export function paintRelightDepthStrokeSegment(
   const steps = Math.max(1, Math.ceil(dist / stepDist));
 
   if (settings.sculptSmoothMode) {
-    const pad = Math.ceil(r + 6);
+    const pad = Math.ceil(r * 1.5 + 8);
     const minX = Math.max(0, Math.floor(Math.min(x0, x1) - pad));
     const minY = Math.max(0, Math.floor(Math.min(y0, y1) - pad));
     const maxX = Math.min(canvasWidth, Math.ceil(Math.max(x0, x1) + pad));
@@ -678,10 +717,11 @@ export function paintRelightDepthStrokeSegment(
     const patch = document.createElement('canvas');
     patch.width = bw;
     patch.height = bh;
-    const pCtx = patch.getContext('2d')!;
-    pCtx.filter = `blur(${Math.max(2, Math.round(r * 0.25))}px)`;
+    const pCtx = patch.getContext('2d', { willReadFrequently: true })!;
     pCtx.drawImage(depthCanvas, minX, minY, bw, bh, 0, 0, bw, bh);
-    pCtx.filter = 'none';
+    const pImg = pCtx.getImageData(0, 0, bw, bh);
+    processDepthBlur(pImg.data, bw, bh, Math.max(1, Math.round(r * 0.28)));
+    pCtx.putImageData(pImg, 0, 0);
 
     ctx.save();
     ctx.beginPath();
@@ -690,8 +730,9 @@ export function paintRelightDepthStrokeSegment(
     ctx.lineWidth = r * 2;
     ctx.moveTo(x0, y0);
     ctx.lineTo(x1, y1);
+    ctx.stroke();
     ctx.clip();
-    ctx.globalAlpha = Math.min(0.85, flow * 1.4);
+    ctx.globalAlpha = Math.min(0.9, flow * 1.5);
     ctx.drawImage(patch, minX, minY);
     ctx.restore();
     bumpRelightDepthRevision(layerId);
@@ -796,6 +837,7 @@ const FRAGMENT_SHADER_SRC = `
   uniform vec3 u_ambient;
   uniform float u_origMix;
   uniform int u_viewNormals;
+  uniform int u_lightingOnly;
   uniform int u_respectAlpha;
   uniform int u_numLights;
 
@@ -875,6 +917,12 @@ const FRAGMENT_SHADER_SRC = `
         float s16 = s4 * s4;
         totalSpec += lCol * (s16 * specStrength * atten * 0.65);
       }
+    }
+
+    if (u_lightingOnly == 1) {
+      vec3 finalRgb = clamp(totalLight + totalSpec, 0.0, 1.0);
+      gl_FragColor = vec4(finalRgb, src.a);
+      return;
     }
 
     vec3 finalRgb = clamp(albedo * totalLight + totalSpec, 0.0, 1.0);
@@ -964,6 +1012,7 @@ function getWebGLRelightContext(): WebGLRelightContext | null {
       'u_ambient',
       'u_origMix',
       'u_viewNormals',
+      'u_lightingOnly',
       'u_respectAlpha',
       'u_numLights',
     ];
@@ -1101,6 +1150,7 @@ export function renderRelightAdjustmentLayer(
     gl.uniform3f(uniforms['u_ambient'], ambR * ambPower, ambG * ambPower, ambB * ambPower);
     gl.uniform1f(uniforms['u_origMix'], settings.originalLighting ?? 0.15);
     gl.uniform1i(uniforms['u_viewNormals'], settings.viewMode === 'normals' ? 1 : 0);
+    gl.uniform1i(uniforms['u_lightingOnly'], settings.viewMode === 'lighting_only' ? 1 : 0);
     gl.uniform1i(uniforms['u_respectAlpha'], settings.respectSubjectAlpha !== false ? 1 : 0);
 
     const lights = (settings.lights || []).slice(0, 5);
@@ -1317,10 +1367,17 @@ export function renderRelightAdjustmentLayer(
         }
       }
 
-      dst[pIdx] = Math.min(255, (albR * totalLightR + totalSpecR) * 255);
-      dst[pIdx + 1] = Math.min(255, (albG * totalLightG + totalSpecG) * 255);
-      dst[pIdx + 2] = Math.min(255, (albB * totalLightB + totalSpecB) * 255);
-      dst[pIdx + 3] = alpha;
+      if (settings.viewMode === 'lighting_only') {
+        dst[pIdx] = Math.min(255, (totalLightR + totalSpecR) * 255);
+        dst[pIdx + 1] = Math.min(255, (totalLightG + totalSpecG) * 255);
+        dst[pIdx + 2] = Math.min(255, (totalLightB + totalSpecB) * 255);
+        dst[pIdx + 3] = alpha;
+      } else {
+        dst[pIdx] = Math.min(255, (albR * totalLightR + totalSpecR) * 255);
+        dst[pIdx + 1] = Math.min(255, (albG * totalLightG + totalSpecG) * 255);
+        dst[pIdx + 2] = Math.min(255, (albB * totalLightB + totalSpecB) * 255);
+        dst[pIdx + 3] = alpha;
+      }
     }
   }
 

@@ -26,6 +26,11 @@ import {
   Redo2,
   GripHorizontal,
   Shuffle,
+  Sun,
+  Moon,
+  Zap,
+  Dices,
+  Droplets,
 } from 'lucide-react';
 import { MayanCornerBrackets } from './MayanDecorations';
 import {
@@ -50,6 +55,16 @@ import {
   getOrCreateRelightDepthCanvas,
   resetRelightDepthCanvas,
   randomizeRelightDepth,
+  applyRelightDepthLighten,
+  applyRelightDepthDarken,
+  applyRelightDepthContrast,
+  applyRelightDepthAutoLevels,
+  applyRelightDepthInvert,
+  applyRelightDepthSeed,
+  applyRelightDepthNoise,
+  applyRelightDepthBlur,
+  generateRelightDepthAnythingV2,
+  generateRelightDepthAnythingV3,
 } from '../utils/relightEngine';
 
 interface AdjustmentControlBarProps {
@@ -83,6 +98,10 @@ export const AdjustmentControlBar: React.FC<AdjustmentControlBarProps> = ({
 
   // Relight Studio active sub-tab ('presets' | 'ambient' | 'depth_sculpt' | lightId)
   const [relightTab, setRelightTab] = useState<string>('light_1');
+  const [isGeneratingDepth, setIsGeneratingDepth] = useState(false);
+  const [depthStatusMessage, setDepthStatusMessage] = useState<string | null>(null);
+  const [depthNoiseAmount, setDepthNoiseAmount] = useState<number>(15);
+  const [depthNoiseKind, setDepthNoiseKind] = useState<'micro_grit' | 'perlin' | 'chisel'>('micro_grit');
 
   // Gradient Map Stop Selection
   const [activeStopId, setActiveStopId] = useState<string | null>(null);
@@ -299,7 +318,7 @@ export const AdjustmentControlBar: React.FC<AdjustmentControlBarProps> = ({
     <div
       className={
         type === 'relight'
-          ? 'fixed bottom-6 inset-x-0 mx-auto z-40 max-w-3xl w-[94vw] md:w-[720px] mayan-panel p-3.5 text-[#e6c699] flex flex-col gap-2.5 select-none animate-in slide-in-from-bottom-3 duration-150 relative shadow-[0_16px_50px_rgba(0,0,0,0.95)] max-h-[82vh] overflow-y-auto'
+          ? 'fixed bottom-6 inset-x-0 mx-auto z-40 max-w-4xl w-[94vw] md:w-[760px] mayan-panel p-3.5 text-[#e6c699] flex flex-col gap-2.5 select-none animate-in slide-in-from-bottom-3 duration-150 relative shadow-[0_16px_50px_rgba(0,0,0,0.95)] max-h-[82vh] overflow-y-auto'
           : 'fixed bottom-6 inset-x-0 mx-auto z-40 max-w-xl w-[92vw] mayan-panel p-3.5 text-[#e6c699] flex flex-col gap-2.5 select-none animate-in slide-in-from-bottom-3 duration-150 relative shadow-[0_16px_50px_rgba(0,0,0,0.95)] max-h-[78vh] overflow-y-auto'
       }
       style={{
@@ -343,7 +362,7 @@ export const AdjustmentControlBar: React.FC<AdjustmentControlBarProps> = ({
                   onUpdateSettings({
                     ...createDefaultRelightSettings(),
                     layerId: layer.id,
-                    regenerateSignal: Date.now(),
+                    regenerateBaseDepthSignal: Date.now(),
                   });
                 } else {
                   onReset();
@@ -379,10 +398,10 @@ export const AdjustmentControlBar: React.FC<AdjustmentControlBarProps> = ({
               }}
               onPointerDown={(e) => e.stopPropagation()}
               title="Apply & Close Adjustment Controls (Enter)"
-              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold mayan-btn-jade text-white shadow transition-all cursor-pointer hover:brightness-110 active:scale-95"
+              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold mayan-btn-jade text-white shadow transition-all cursor-pointer hover:brightness-110 active:scale-95 shrink-0"
             >
               <Check size={13} />
-              <span>Apply / Done</span>
+              <span>Done</span>
             </button>
           )}
           {onClose && (
@@ -423,155 +442,158 @@ export const AdjustmentControlBar: React.FC<AdjustmentControlBarProps> = ({
           const gray255 = Math.round((relightCfg.sculptTargetDepth ?? 0.85) * 255);
 
           return (
-            <div className="flex flex-col gap-2.5">
-              {/* View Mode & Depth Sculptor Quick Bar */}
-              <div className="flex items-center justify-between gap-2 bg-[#0b0e0d] p-1.5 rounded-xl border border-[#2c3532]">
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-[#9e9484] px-1.5 font-semibold uppercase">View:</span>
+            <div className="flex flex-col gap-2">
+              {/* Unified Mayan Relight Command Ribbon (Removes blocking space around pills) */}
+              <div className="flex items-center justify-between gap-1.5 bg-[#0b0e0d] px-2 py-1.5 rounded-lg border border-[#2c3532] flex-wrap">
+                {/* Navigation Category Pills */}
+                <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+                  <button
+                    onClick={() => {
+                      setRelightTab('presets');
+                      updateRelight({ editSubMode: 'lighting' });
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition ${
+                      relightTab === 'presets' ? 'mayan-btn-jade text-white shadow-sm' : 'mayan-btn-stone text-[#e6c699]/80'
+                    }`}
+                  >
+                    <Sparkles size={11} />
+                    <span>Presets</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setRelightTab('ambient');
+                      updateRelight({ editSubMode: 'lighting' });
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition ${
+                      relightTab === 'ambient' ? 'mayan-btn-jade text-white shadow-sm' : 'mayan-btn-stone text-[#e6c699]/80'
+                    }`}
+                  >
+                    <SunMedium size={11} />
+                    <span>Ambient & Relief</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setRelightTab('depth_sculpt');
+                      updateRelight({ editSubMode: 'depth_sculpt' });
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition ${
+                      relightTab === 'depth_sculpt' ? 'mayan-btn-jade text-white shadow-sm' : 'mayan-btn-stone text-[#e6c699]/80'
+                    }`}
+                  >
+                    <Wand2 size={11} />
+                    <span>Depth Studio</span>
+                  </button>
+
+                  {lights.map((l, idx) => {
+                    const isSelected = relightTab === l.id;
+                    return (
+                      <button
+                        key={l.id}
+                        onClick={() => {
+                          setRelightTab(l.id);
+                          updateRelight({ activeLightId: l.id, editSubMode: 'lighting' });
+                        }}
+                        className={`px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition ${
+                          isSelected
+                            ? 'bg-[#164435] border border-[#5fd3ad] text-white shadow-sm'
+                            : 'mayan-btn-stone text-[#e6c699]/80'
+                        }`}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full border border-white/60 shrink-0"
+                          style={{ backgroundColor: l.color }}
+                        />
+                        <span>{l.name || `Light ${idx + 1}`}</span>
+                      </button>
+                    );
+                  })}
+
+                  {lights.length < 5 && (
+                    <button
+                      onClick={() => {
+                        const newId = `light_${Date.now()}`;
+                        const newLight: RelightLightSource = {
+                          id: newId,
+                          name: `Light ${lights.length + 1}`,
+                          x: 0.3 + Math.random() * 0.4,
+                          y: 0.3 + Math.random() * 0.4,
+                          z: 0.22,
+                          color: '#60a5fa',
+                          power: 1.3,
+                          radius: 0.55,
+                          diffusion: 0.4,
+                          specular: 0.35,
+                        };
+                        const nextLights = [...lights, newLight];
+                        updateRelight({
+                          lights: nextLights,
+                          activeLightId: newId,
+                          editSubMode: 'lighting',
+                        });
+                        setRelightTab(newId);
+                      }}
+                      className="px-2 py-1 rounded-md text-[11px] font-semibold mayan-btn-cta flex items-center gap-1 shrink-0 cursor-pointer"
+                      title="Add Point Light Source"
+                    >
+                      <Plus size={11} />
+                      <span>+ Light</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* View Modes & Sculpt Toggle */}
+                <div className="flex items-center gap-1 shrink-0 ml-auto">
+                  <span className="text-[10px] text-[#9e9484] px-1 font-semibold uppercase">View:</span>
                   {(
                     [
                       { id: 'lit', label: '3D Relit' },
-                      { id: 'unlit', label: 'Original Color' },
-                      { id: 'depth', label: 'Depth Map' },
-                      { id: 'normals', label: '3D Normals' },
+                      { id: 'lighting_only', label: '💡 Light' },
+                      { id: 'unlit', label: 'Original' },
+                      { id: 'depth', label: 'Depth' },
+                      { id: 'normals', label: 'Normals' },
                     ] as const
                   ).map((vm) => (
                     <button
                       key={vm.id}
                       onClick={() => updateRelight({ viewMode: vm.id })}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
                         relightCfg.viewMode === vm.id
-                          ? 'mayan-btn-jade text-white shadow'
+                          ? 'mayan-btn-jade text-white shadow-sm'
                           : 'text-[#e6c699]/70 hover:text-white hover:bg-white/5'
                       }`}
                     >
                       {vm.label}
                     </button>
                   ))}
-                </div>
 
-                {/* Toggle between Moving Lights vs. Painting Depth Map */}
-                <button
-                  onClick={() => {
-                    const nextMode = relightCfg.editSubMode === 'depth_sculpt' ? 'lighting' : 'depth_sculpt';
-                    updateRelight({ editSubMode: nextMode });
-                    if (nextMode === 'depth_sculpt') {
-                      setRelightTab('depth_sculpt');
-                    } else if (relightTab === 'depth_sculpt') {
-                      setRelightTab(lights[0]?.id || 'ambient');
-                    }
-                  }}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                    relightCfg.editSubMode === 'depth_sculpt'
-                      ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
-                      : 'mayan-btn-stone text-[#e6c699] hover:border-[#5fd3ad]'
-                  }`}
-                  title="Paint directly on the canvas to sculpt 3D depth"
-                >
-                  <BrushIcon size={11} />
-                  <span>
-                    {relightCfg.editSubMode === 'depth_sculpt' ? 'Sculpting Depth (Active)' : 'Sculpt Depth Map'}
-                  </span>
-                </button>
-              </div>
+                  <div className="w-px h-3.5 bg-[#2c3532] mx-0.5" />
 
-              {/* Navigation Pills: Presets | Ambient | Depth Studio | Light 1 | Light 2 | + Light */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
-                <button
-                  onClick={() => {
-                    setRelightTab('presets');
-                    updateRelight({ editSubMode: 'lighting' });
-                  }}
-                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition ${
-                    relightTab === 'presets' ? 'mayan-btn-jade text-white' : 'mayan-btn-stone text-[#e6c699]/80'
-                  }`}
-                >
-                  <Sparkles size={12} />
-                  <span>Presets</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setRelightTab('ambient');
-                    updateRelight({ editSubMode: 'lighting' });
-                  }}
-                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition ${
-                    relightTab === 'ambient' ? 'mayan-btn-jade text-white' : 'mayan-btn-stone text-[#e6c699]/80'
-                  }`}
-                >
-                  <SunMedium size={12} />
-                  <span>Ambient & Relief</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setRelightTab('depth_sculpt');
-                    updateRelight({ editSubMode: 'depth_sculpt' });
-                  }}
-                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition ${
-                    relightTab === 'depth_sculpt' ? 'mayan-btn-jade text-white' : 'mayan-btn-stone text-[#e6c699]/80'
-                  }`}
-                >
-                  <Wand2 size={12} />
-                  <span>Depth Studio</span>
-                </button>
-
-                {lights.map((l, idx) => {
-                  const isSelected = relightTab === l.id;
-                  return (
-                    <button
-                      key={l.id}
-                      onClick={() => {
-                        setRelightTab(l.id);
-                        updateRelight({ activeLightId: l.id, editSubMode: 'lighting' });
-                      }}
-                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition ${
-                        isSelected
-                          ? 'bg-[#164435] border-2 border-[#5fd3ad] text-white shadow'
-                          : 'mayan-btn-stone text-[#e6c699]/80'
-                      }`}
-                    >
-                      <span
-                        className="w-2.5 h-2.5 rounded-full border border-white/60 shrink-0"
-                        style={{ backgroundColor: l.color }}
-                      />
-                      <span>{l.name || `Light ${idx + 1}`}</span>
-                    </button>
-                  );
-                })}
-
-                {lights.length < 5 && (
+                  {/* Toggle between Moving Lights vs. Painting Depth Map */}
                   <button
                     onClick={() => {
-                      const newId = `light_${Date.now()}`;
-                      const newLight: RelightLightSource = {
-                        id: newId,
-                        name: `Light ${lights.length + 1}`,
-                        x: 0.3 + Math.random() * 0.4,
-                        y: 0.3 + Math.random() * 0.4,
-                        z: 0.22,
-                        color: '#60a5fa',
-                        power: 1.3,
-                        radius: 0.55,
-                        diffusion: 0.4,
-                        specular: 0.35,
-                      };
-                      const nextLights = [...lights, newLight];
-                      updateRelight({
-                        lights: nextLights,
-                        activeLightId: newId,
-                        editSubMode: 'lighting',
-                      });
-                      setRelightTab(newId);
+                      const nextMode = relightCfg.editSubMode === 'depth_sculpt' ? 'lighting' : 'depth_sculpt';
+                      updateRelight({ editSubMode: nextMode });
+                      if (nextMode === 'depth_sculpt') {
+                        setRelightTab('depth_sculpt');
+                      } else if (relightTab === 'depth_sculpt') {
+                        setRelightTab(lights[0]?.id || 'ambient');
+                      }
                     }}
-                    className="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold mayan-btn-cta flex items-center gap-1 shrink-0 cursor-pointer"
-                    title="Add Point Light Source"
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer ${
+                      relightCfg.editSubMode === 'depth_sculpt'
+                        ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+                        : 'mayan-btn-stone text-[#e6c699] hover:border-[#5fd3ad]'
+                    }`}
+                    title="Paint directly on the canvas to sculpt 3D depth"
                   >
-                    <Plus size={12} />
-                    <span>+ Light</span>
+                    <BrushIcon size={10} />
+                    <span>{relightCfg.editSubMode === 'depth_sculpt' ? 'Sculpting (On)' : 'Sculpt Map'}</span>
                   </button>
-                )}
+                </div>
               </div>
+
 
               {/* TAB A: STUDIO PRESETS */}
               {relightTab === 'presets' && (
@@ -706,229 +728,621 @@ export const AdjustmentControlBar: React.FC<AdjustmentControlBarProps> = ({
                 </div>
               )}
 
-              {/* TAB C: REWORKED DEPTH SCULPTOR STUDIO (Continuous Far↔Close Slider + Softness + Depth Undo/Redo) */}
+              {/* TAB C: ENHANCED DEPTH ANYTHING V2 & 3D DEPTH STUDIO */}
               {relightTab === 'depth_sculpt' && (
-                <div className="flex flex-col gap-2.5 bg-[#0c100f] p-3 rounded-xl border border-amber-500/40">
-                  {/* Top Row: Paint Depth vs Smooth + Dedicated Depth Undo / Redo */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => updateRelight({ sculptSmoothMode: false, editSubMode: 'depth_sculpt' })}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition flex items-center gap-1.5 ${
-                          !relightCfg.sculptSmoothMode
-                            ? 'bg-amber-500 text-black shadow'
-                            : 'mayan-btn-stone text-[#e6c699]/80'
-                        }`}
-                      >
-                        <span
-                          className="w-2.5 h-2.5 rounded-full border border-black/40"
-                          style={{ backgroundColor: `rgb(${gray255}, ${gray255}, ${gray255})` }}
-                        />
-                        <span>Paint Depth Value</span>
-                      </button>
-
-                      <button
-                        onClick={() => updateRelight({ sculptSmoothMode: true, editSubMode: 'depth_sculpt' })}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition ${
-                          relightCfg.sculptSmoothMode
-                            ? 'bg-amber-500 text-black shadow'
-                            : 'mayan-btn-stone text-[#e6c699]/80'
-                        }`}
-                      >
-                        Smooth / Blend Transitions
-                      </button>
-                    </div>
-
-                    {/* Dedicated Depth Map Undo / Redo Buttons */}
-                    <div className="flex items-center gap-1">
-                      <button
-                        disabled={!canUndoRelightDepth(layer.id)}
-                        onClick={() => {
-                          if (undoRelightDepth(layer.id)) {
-                            const dCanvas = getOrCreateRelightDepthCanvas(layer.id, layer.canvas.width, layer.canvas.height);
-                            updateRelight({ depthDataUrl: dCanvas.toDataURL() });
-                          }
-                        }}
-                        className="px-2 py-1 rounded-lg mayan-btn-stone hover:border-[#5fd3ad] disabled:opacity-30 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
-                        title="Undo Depth Stroke (Ctrl+Z while in Depth Studio)"
-                      >
-                        <Undo2 size={11} />
-                        <span>Undo Depth</span>
-                      </button>
-                      <button
-                        disabled={!canRedoRelightDepth(layer.id)}
-                        onClick={() => {
-                          if (redoRelightDepth(layer.id)) {
-                            const dCanvas = getOrCreateRelightDepthCanvas(layer.id, layer.canvas.width, layer.canvas.height);
-                            updateRelight({ depthDataUrl: dCanvas.toDataURL() });
-                          }
-                        }}
-                        className="px-2 py-1 rounded-lg mayan-btn-stone hover:border-[#5fd3ad] disabled:opacity-30 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
-                        title="Redo Depth Stroke (Ctrl+Y while in Depth Studio)"
-                      >
-                        <Redo2 size={11} />
-                        <span>Redo</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Continuous Target Depth Intensity Slider (Far Black 0% <-> Mid 50% <-> Close White 100%) */}
-                  {!relightCfg.sculptSmoothMode && (
-                    <div className="flex flex-col gap-1 pt-0.5">
-                      <div className="flex items-center justify-between text-[10px]">
-                        <span className="text-white/70 font-medium">
-                          Brush Depth Level (0% Far/Deep ↔ 50% Neutral ↔ 100% Close/Raised)
+                <div className="flex flex-col gap-3 bg-[#0c100f] p-3 rounded-xl border border-amber-500/40">
+                  {/* 1. DEPTH ANYTHING V3 SMALL (DA3-SMALL) AI ENGINE CARD */}
+                  <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-[#111715] border border-[#23352e]">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles size={13} className="text-[#5fd3ad]" />
+                        <span className="text-[11px] font-bold text-[#f2fbf7]">
+                          Depth Anything V3 Small (DA3-Small) Neural Engine
                         </span>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => updateRelight({ sculptTargetDepth: 0.5 })}
-                            className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/80 cursor-pointer"
-                            title="Set to 50% Neutral Mid-Plane"
-                          >
-                            50% Mid
-                          </button>
-                          <span className="font-mono font-bold text-amber-400">
-                            {targetDepthPct}% ({targetDepthPct < 45 ? 'Far' : targetDepthPct > 55 ? 'Close' : 'Mid'})
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#164435] text-[#5fd3ad] font-semibold border border-[#5fd3ad]/40">
+                          v3.0 Local / In-Code
+                        </span>
+                      </div>
+
+                      {/* Engine Mode Toggle */}
+                      <div className="flex items-center gap-1 bg-[#0b0e0d] p-0.5 rounded-md border border-[#2c3532]">
+                        <button
+                          onClick={() => updateRelight({ depthMode: 'v3_small_neural' })}
+                          className={`px-2 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
+                            (relightCfg.depthMode || 'v3_small_neural') === 'v3_small_neural'
+                              ? 'mayan-btn-jade text-white shadow'
+                              : 'text-[#e6c699]/70 hover:text-white'
+                          }`}
+                          title="Instant local DA3-Small neural & geometric depth inference (Zero network dependencies)"
+                        >
+                          ⚡ DA3-Small Neural
+                        </button>
+                        <button
+                          onClick={() => updateRelight({ depthMode: 'v3_safetensors' })}
+                          className={`px-2 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
+                            relightCfg.depthMode === 'v3_safetensors'
+                              ? 'mayan-btn-jade text-white shadow'
+                              : 'text-[#e6c699]/70 hover:text-white'
+                          }`}
+                          title="Load model.safetensors from Hunbatz local content/operation models/ folder"
+                        >
+                          📁 DA3 Safetensors
+                        </button>
+                        <button
+                          onClick={() => updateRelight({ depthMode: 'v2_neural_fast' })}
+                          className={`px-2 py-0.5 rounded text-[9px] font-bold transition cursor-pointer ${
+                            relightCfg.depthMode === 'v2_neural_fast'
+                              ? 'mayan-btn-jade text-white shadow'
+                              : 'text-[#e6c699]/70 hover:text-white'
+                          }`}
+                          title="Legacy Fast Neural Heuristic"
+                        >
+                          v2 Fast
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          disabled={isGeneratingDepth}
+                          onClick={async () => {
+                            setIsGeneratingDepth(true);
+                            setDepthStatusMessage('Synthesizing Depth Anything V3 Small...');
+                            try {
+                              const url = await generateRelightDepthAnythingV3(layer.id, layer.canvas, {
+                                mode: relightCfg.depthMode || 'v3_small_neural',
+                                autoPuff: relightCfg.autoPuff ?? 0.65,
+                                ignoreInkLines: relightCfg.ignoreInkLines !== false,
+                              });
+                              if (url) {
+                                updateRelight({ depthDataUrl: url });
+                                setDepthStatusMessage('✨ DA3-Small depth map generated!');
+                                setTimeout(() => setDepthStatusMessage(null), 3000);
+                              }
+                            } catch (err: any) {
+                              console.error(err);
+                              setDepthStatusMessage('Error: ' + (err?.message || 'Synthesis failed'));
+                            } finally {
+                              setIsGeneratingDepth(false);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg mayan-btn-cta text-[11px] font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow"
+                          title="Generate continuous 3D Depth Map with DA3-Small model"
+                        >
+                          <Wand2 size={13} className={isGeneratingDepth ? 'animate-spin' : ''} />
+                          <span>{isGeneratingDepth ? 'Generating DA3-Small...' : '✨ Generate DA3-Small Depth Map'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            updateRelight({ regenerateBaseDepthSignal: Date.now() });
+                            setDepthStatusMessage('🔄 Base depth recalculated from canvas!');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }}
+                          className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:text-white text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition shadow"
+                          title="Recalculate base depth map from composite canvas layers"
+                        >
+                          <RotateCcw size={11} className="text-[#b89058]" />
+                          <span>Recalculate Base</span>
+                        </button>
+                      </div>
+
+                      {depthStatusMessage && (
+                        <span className="text-[10px] font-semibold text-[#5fd3ad] bg-[#164435]/60 px-2 py-0.5 rounded border border-[#5fd3ad]/30 animate-pulse">
+                          {depthStatusMessage}
+                        </span>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 text-[10px] text-[#e6c699]/80 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={relightCfg.ignoreInkLines !== false}
+                            onChange={(e) =>
+                              updateRelight({
+                                ignoreInkLines: e.target.checked,
+                              })
+                            }
+                            className="accent-[#5fd3ad] rounded cursor-pointer"
+                          />
+                          <span>Shield Lineart</span>
+                        </label>
+
+                        <div className="flex items-center gap-1 text-[10px] text-[#e6c699]/80">
+                          <span>Puff:</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={Math.round((relightCfg.autoPuff ?? 0.65) * 100)}
+                            onChange={(e) =>
+                              updateRelight({
+                                autoPuff: Number(e.target.value) / 100,
+                              })
+                            }
+                            className="w-16 h-1.5 bg-white/10 accent-[#5fd3ad] rounded cursor-pointer"
+                          />
+                          <span className="font-mono text-[#5fd3ad] w-7 text-right">
+                            {Math.round((relightCfg.autoPuff ?? 0.65) * 100)}%
                           </span>
                         </div>
                       </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={targetDepthPct}
-                        onChange={(e) =>
-                          updateRelight({
-                            sculptTargetDepth: Number(e.target.value) / 100,
-                            sculptSmoothMode: false,
-                            editSubMode: 'depth_sculpt',
-                          })
-                        }
-                        className="w-full h-2.5 rounded-lg cursor-pointer border border-white/20"
-                        style={{
-                          background: 'linear-gradient(to right, #000000 0%, #808080 50%, #ffffff 100%)',
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {/* Brush Softness & Flow Sliders */}
-                  <div className="grid grid-cols-3 gap-2.5 pt-1 border-t border-white/10">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between text-[10px] text-white/60">
-                        <span>Brush Softness</span>
-                        <span className="font-mono text-amber-400">
-                          {Math.round((relightCfg.sculptSoftness ?? 0.75) * 100)}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={Math.round((relightCfg.sculptSoftness ?? 0.75) * 100)}
-                        onChange={(e) => updateRelight({ sculptSoftness: Number(e.target.value) / 100 })}
-                        className="w-full h-1.5 bg-white/10 accent-amber-400 rounded cursor-pointer"
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between text-[10px] text-white/60">
-                        <span>Brush Flow</span>
-                        <span className="font-mono text-amber-400">
-                          {Math.round((relightCfg.sculptStrength ?? 0.35) * 100)}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={5}
-                        max={100}
-                        value={Math.round((relightCfg.sculptStrength ?? 0.35) * 100)}
-                        onChange={(e) => updateRelight({ sculptStrength: Number(e.target.value) / 100 })}
-                        className="w-full h-1.5 bg-white/10 accent-amber-400 rounded cursor-pointer"
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center justify-between text-[10px] text-white/60">
-                        <span>Auto-Puff Base</span>
-                        <span className="font-mono text-[#5fd3ad]">
-                          {Math.round((relightCfg.autoPuff ?? 0.65) * 100)}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={Math.round((relightCfg.autoPuff ?? 0.65) * 100)}
-                        onChange={(e) =>
-                          updateRelight({
-                            autoPuff: Number(e.target.value) / 100,
-                            regenerateSignal: Date.now(),
-                          })
-                        }
-                        className="w-full h-1.5 bg-white/10 accent-[#5fd3ad] rounded cursor-pointer"
-                      />
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-1.5 border-t border-white/10">
-                    <label className="flex items-center gap-1.5 text-[10px] text-[#e6c699]/80 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={relightCfg.ignoreInkLines !== false}
-                        onChange={(e) =>
-                          updateRelight({
-                            ignoreInkLines: e.target.checked,
-                            regenerateSignal: Date.now(),
-                          })
-                        }
-                        className="accent-[#5fd3ad] rounded cursor-pointer"
-                      />
-                      <span>Ignore Black Lineart Trenches</span>
-                    </label>
+                  {/* 2. DYNAMIC TONAL BUTTONS (Lighten, Darken, Contrast, Blur, Auto-Levels, Invert) */}
+                  <div className="flex flex-col gap-1.5 p-2.5 rounded-lg bg-[#111715] border border-[#23352e]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Sun size={13} className="text-amber-400" />
+                        <span className="text-[11px] font-bold text-[#f2fbf7]">
+                          Dynamic Depth Tonal Controls & Smoothing
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-[#9e9484]">
+                        Click buttons to adjust tonal ranges and blur depth boundaries
+                      </span>
+                    </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 pt-0.5">
                       <button
                         onClick={() => {
-                          const dCanvas = resetRelightDepthCanvas(
-                            layer.id,
-                            layer.canvas.width,
-                            layer.canvas.height,
-                            layer.canvas,
-                            relightCfg.autoPuff,
-                            relightCfg.ignoreInkLines
-                          );
-                          updateRelight({
-                            depthDataUrl: dCanvas.toDataURL(),
-                            regenerateSignal: Date.now(),
-                          });
+                          const url = applyRelightDepthLighten(layer.id, 25, layer.canvas);
+                          if (url) {
+                            updateRelight({ depthDataUrl: url });
+                            setDepthStatusMessage('☀️ Depth map lightened (+15%)');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }
                         }}
-                        className="px-2.5 py-1 rounded-lg mayan-btn-cta text-[10px] font-bold flex items-center gap-1 cursor-pointer"
-                        title="Recalculate base depth map from current canvas art"
+                        className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:border-amber-400 hover:text-amber-300 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        title="Lighten depth map (+15% raised toward camera)"
                       >
-                        <Wand2 size={11} />
-                        <span>Recalculate Base Depth</span>
+                        <Sun size={11} className="text-amber-400" />
+                        <span>Lighten</span>
                       </button>
 
                       <button
                         onClick={() => {
-                          const dCanvas = randomizeRelightDepth(
-                            layer.id,
-                            layer.canvas.width,
-                            layer.canvas.height,
-                            layer.canvas
-                          );
-                          updateRelight({
-                            depthDataUrl: dCanvas.toDataURL(),
-                            regenerateSignal: Date.now(),
-                          });
+                          const url = applyRelightDepthDarken(layer.id, 25, layer.canvas);
+                          if (url) {
+                            updateRelight({ depthDataUrl: url });
+                            setDepthStatusMessage('🌙 Depth map darkened (-15%)');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }
                         }}
-                        className="px-2.5 py-1 rounded-lg mayan-btn-stone hover:border-amber-400 text-amber-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
-                        title="Randomize depth with organic 3D surface harmonic relief"
+                        className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:border-blue-400 hover:text-blue-300 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        title="Darken depth map (-15% pushed further away)"
                       >
-                        <Shuffle size={11} />
-                        <span>Randomize Depth</span>
+                        <Moon size={11} className="text-blue-400" />
+                        <span>Darken</span>
                       </button>
+
+                      <button
+                        onClick={() => {
+                          const url = applyRelightDepthContrast(layer.id, 1.25, layer.canvas);
+                          if (url) {
+                            updateRelight({ depthDataUrl: url });
+                            setDepthStatusMessage('⚡ Depth contrast enhanced (+25%)');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }
+                        }}
+                        className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:border-yellow-400 hover:text-yellow-300 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        title="Increase depth contrast (+25% steeper 3D slopes)"
+                      >
+                        <Zap size={11} className="text-yellow-400" />
+                        <span>+Contrast</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const url = applyRelightDepthContrast(layer.id, 0.8, layer.canvas);
+                          if (url) {
+                            updateRelight({ depthDataUrl: url });
+                            setDepthStatusMessage('◑ Depth slopes softened (-20%)');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }
+                        }}
+                        className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:border-gray-400 hover:text-gray-200 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        title="Decrease depth contrast (-20% softer flatter slopes)"
+                      >
+                        <Contrast size={11} className="text-gray-400" />
+                        <span>-Contrast</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const url = applyRelightDepthBlur(layer.id, 2, layer.canvas);
+                          if (url) {
+                            updateRelight({ depthDataUrl: url });
+                            setDepthStatusMessage('💧 Depth smoothed (+10% blur)');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }
+                        }}
+                        className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:border-cyan-400 hover:text-cyan-300 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        title="Smooth and soften depth map transitions (+10%)"
+                      >
+                        <Droplets size={11} className="text-cyan-400" />
+                        <span>Blur (10%)</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const url = applyRelightDepthBlur(layer.id, 5, layer.canvas);
+                          if (url) {
+                            updateRelight({ depthDataUrl: url });
+                            setDepthStatusMessage('💧 Deep depth blur applied (+25%)');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }
+                        }}
+                        className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:border-cyan-400 hover:text-cyan-300 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        title="Deep depth map smoothing without border darkening (+25%)"
+                      >
+                        <Droplets size={11} className="text-cyan-400" />
+                        <span>+Blur (25%)</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const url = applyRelightDepthAutoLevels(layer.id, layer.canvas);
+                          if (url) {
+                            updateRelight({ depthDataUrl: url });
+                            setDepthStatusMessage('📊 Dynamic auto-levels applied (0..255)');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }
+                        }}
+                        className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:border-[#5fd3ad] hover:text-[#5fd3ad] text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        title="Auto-stretch depth map to full 0..255 dynamic range"
+                      >
+                        <Sliders size={11} className="text-[#5fd3ad]" />
+                        <span>Auto-Levels</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const url = applyRelightDepthInvert(layer.id, layer.canvas);
+                          if (url) {
+                            updateRelight({ depthDataUrl: url });
+                            setDepthStatusMessage('🔄 Depth relief inverted');
+                            setTimeout(() => setDepthStatusMessage(null), 2500);
+                          }
+                        }}
+                        className="px-2 py-1.5 rounded-lg mayan-btn-stone hover:border-purple-400 hover:text-purple-300 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        title="Invert depth relief (reverses convex and concave)"
+                      >
+                        <RotateCcw size={11} className="text-purple-400" />
+                        <span>Invert</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3. PROCEDURAL VARIATIONS & SURFACE MICRO-TEXTURE NOISE CARD */}
+                  <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-[#111715] border border-[#23352e]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Dices size={13} className="text-cyan-400" />
+                        <span className="text-[11px] font-bold text-[#f2fbf7]">
+                          Procedural Variations & Micro-Texture Noise
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-[#9e9484]">
+                        Breaks up plastic flatness with realistic specular micro-facets
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      {/* Seed Randomizer & Steppers */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            const newSeed = Math.floor(Math.random() * 900000) + 1000;
+                            const url = applyRelightDepthSeed(layer.id, newSeed, layer.canvas);
+                            if (url) {
+                              updateRelight({ depthSeed: newSeed, depthDataUrl: url });
+                              setDepthStatusMessage(`🎲 Procedural seed #${newSeed} applied`);
+                              setTimeout(() => setDepthStatusMessage(null), 2500);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg mayan-btn-stone hover:border-cyan-400 text-cyan-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer shadow"
+                          title="Generate new procedural depth seed variations"
+                        >
+                          <Shuffle size={11} />
+                          <span>Randomize Seed</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const prevSeed = Math.max(1, (relightCfg.depthSeed ?? 1000) - 1);
+                            const url = applyRelightDepthSeed(layer.id, prevSeed, layer.canvas);
+                            if (url) {
+                              updateRelight({ depthSeed: prevSeed, depthDataUrl: url });
+                              setDepthStatusMessage(`🎲 Seed #${prevSeed}`);
+                              setTimeout(() => setDepthStatusMessage(null), 2000);
+                            }
+                          }}
+                          className="px-1.5 py-1 rounded-lg mayan-btn-stone text-[9px] hover:text-white cursor-pointer"
+                          title="Previous Seed"
+                        >
+                          ◀
+                        </button>
+                        <span className="text-[10px] font-mono text-cyan-300 font-bold px-1">
+                          #{relightCfg.depthSeed ?? 1000}
+                        </span>
+                        <button
+                          onClick={() => {
+                            const nextSeed = (relightCfg.depthSeed ?? 1000) + 1;
+                            const url = applyRelightDepthSeed(layer.id, nextSeed, layer.canvas);
+                            if (url) {
+                              updateRelight({ depthSeed: nextSeed, depthDataUrl: url });
+                              setDepthStatusMessage(`🎲 Seed #${nextSeed}`);
+                              setTimeout(() => setDepthStatusMessage(null), 2000);
+                            }
+                          }}
+                          className="px-1.5 py-1 rounded-lg mayan-btn-stone text-[9px] hover:text-white cursor-pointer"
+                          title="Next Seed"
+                        >
+                          ▶
+                        </button>
+                      </div>
+
+                      {/* Quick Micro-Texture Buttons */}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            const url = applyRelightDepthNoise(
+                              layer.id,
+                              { type: 'micro_grit', intensity: 0.12 },
+                              layer.canvas
+                            );
+                            if (url) {
+                              updateRelight({ depthDataUrl: url });
+                              setDepthStatusMessage('✨ Micro-grit texture applied!');
+                              setTimeout(() => setDepthStatusMessage(null), 2500);
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg mayan-btn-stone hover:border-teal-400 text-teal-300 text-[10px] font-semibold cursor-pointer shadow"
+                          title="Add subtle 1-2px specular grit facets"
+                        >
+                          + Micro-Grit (12%)
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const url = applyRelightDepthNoise(
+                              layer.id,
+                              { type: 'chisel', intensity: 0.20 },
+                              layer.canvas
+                            );
+                            if (url) {
+                              updateRelight({ depthDataUrl: url });
+                              setDepthStatusMessage('✨ Chisel stone relief applied!');
+                              setTimeout(() => setDepthStatusMessage(null), 2500);
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg mayan-btn-stone hover:border-amber-400 text-amber-300 text-[10px] font-semibold cursor-pointer shadow"
+                          title="Add chiseled stone relief texture"
+                        >
+                          + Chisel Stone (20%)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Fine-Tuning Noise Controls */}
+                    <div className="flex items-center justify-between gap-3 pt-1 border-t border-white/5 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-[#e6c699]/80">Noise Style:</span>
+                        <select
+                          value={depthNoiseKind}
+                          onChange={(e) => setDepthNoiseKind(e.target.value as any)}
+                          className="bg-[#0b0e0d] text-[10px] text-white border border-[#2c3532] rounded px-1.5 py-0.5 cursor-pointer"
+                        >
+                          <option value="micro_grit">Micro-Grit (Specular Facets)</option>
+                          <option value="perlin">Organic Cellular / Perlin</option>
+                          <option value="chisel">Chiseled Stone Relief</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-[#e6c699]/80">Intensity:</span>
+                        <input
+                          type="range"
+                          min={2}
+                          max={50}
+                          value={depthNoiseAmount}
+                          onChange={(e) => setDepthNoiseAmount(Number(e.target.value))}
+                          className="w-20 h-1.5 bg-white/10 accent-cyan-400 rounded cursor-pointer"
+                        />
+                        <span className="font-mono text-cyan-300 text-[10px] w-6 text-right">
+                          {depthNoiseAmount}%
+                        </span>
+
+                        <button
+                          onClick={() => {
+                            const url = applyRelightDepthNoise(
+                              layer.id,
+                              { type: depthNoiseKind, intensity: depthNoiseAmount / 100 },
+                              layer.canvas
+                            );
+                            if (url) {
+                              updateRelight({ depthDataUrl: url });
+                              setDepthStatusMessage(`✨ Applied ${depthNoiseKind} noise (${depthNoiseAmount}%)`);
+                              setTimeout(() => setDepthStatusMessage(null), 2500);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded mayan-btn-jade text-white text-[10px] font-bold cursor-pointer shadow"
+                          title="Apply custom noise intensity"
+                        >
+                          Apply Noise
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. DIRECT CANVAS DEPTH SCULPTOR & BRUSH */}
+                  <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-[#111715] border border-[#23352e]">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <BrushIcon size={13} className="text-amber-400" />
+                        <span className="text-[11px] font-bold text-[#f2fbf7]">
+                          Direct Canvas Sculptor Brush
+                        </span>
+                        <button
+                          onClick={() => updateRelight({ sculptSmoothMode: false, editSubMode: 'depth_sculpt' })}
+                          className={`ml-1 px-2 py-0.5 rounded text-[9px] font-bold cursor-pointer transition flex items-center gap-1 ${
+                            !relightCfg.sculptSmoothMode
+                              ? 'bg-amber-500 text-black shadow'
+                              : 'mayan-btn-stone text-[#e6c699]/80'
+                          }`}
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full border border-black/40"
+                            style={{ backgroundColor: `rgb(${gray255}, ${gray255}, ${gray255})` }}
+                          />
+                          <span>Paint Depth</span>
+                        </button>
+
+                        <button
+                          onClick={() => updateRelight({ sculptSmoothMode: true, editSubMode: 'depth_sculpt' })}
+                          className={`px-2 py-0.5 rounded text-[9px] font-bold cursor-pointer transition ${
+                            relightCfg.sculptSmoothMode
+                              ? 'bg-amber-500 text-black shadow'
+                              : 'mayan-btn-stone text-[#e6c699]/80'
+                          }`}
+                        >
+                          Smooth Transitions
+                        </button>
+                      </div>
+
+                      {/* Dedicated Depth Map Undo / Redo Buttons */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          disabled={!canUndoRelightDepth(layer.id)}
+                          onClick={() => {
+                            if (undoRelightDepth(layer.id)) {
+                              const dCanvas = getOrCreateRelightDepthCanvas(layer.id, layer.canvas.width, layer.canvas.height);
+                              updateRelight({ depthDataUrl: dCanvas.toDataURL() });
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg mayan-btn-stone hover:border-[#5fd3ad] disabled:opacity-30 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                          title="Undo Depth Stroke (Ctrl+Z while in Depth Studio)"
+                        >
+                          <Undo2 size={11} />
+                          <span>Undo Stroke</span>
+                        </button>
+                        <button
+                          disabled={!canRedoRelightDepth(layer.id)}
+                          onClick={() => {
+                            if (redoRelightDepth(layer.id)) {
+                              const dCanvas = getOrCreateRelightDepthCanvas(layer.id, layer.canvas.width, layer.canvas.height);
+                              updateRelight({ depthDataUrl: dCanvas.toDataURL() });
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg mayan-btn-stone hover:border-[#5fd3ad] disabled:opacity-30 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                          title="Redo Depth Stroke (Ctrl+Y while in Depth Studio)"
+                        >
+                          <Redo2 size={11} />
+                          <span>Redo</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            const dCanvas = resetRelightDepthCanvas(
+                              layer.id,
+                              layer.canvas.width,
+                              layer.canvas.height,
+                              layer.canvas,
+                              relightCfg.autoPuff,
+                              relightCfg.ignoreInkLines
+                            );
+                            updateRelight({
+                              depthDataUrl: dCanvas.toDataURL(),
+                              regenerateBaseDepthSignal: Date.now(),
+                            });
+                          }}
+                          className="px-2 py-1 rounded-lg mayan-btn-stone hover:border-red-400 text-red-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                          title="Reset depth to flat plane"
+                        >
+                          <RotateCcw size={11} />
+                          <span>Reset</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Continuous Target Depth Intensity Slider (Far Black 0% <-> Mid 50% <-> Close White 100%) */}
+                    {!relightCfg.sculptSmoothMode && (
+                      <div className="flex flex-col gap-1 pt-0.5">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-white/70 font-medium">
+                            Brush Depth Level (0% Far/Deep ↔ 50% Neutral ↔ 100% Close/Raised)
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => updateRelight({ sculptTargetDepth: 0.5 })}
+                              className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/80 cursor-pointer"
+                              title="Set to 50% Neutral Mid-Plane"
+                            >
+                              50% Mid
+                            </button>
+                            <span className="font-mono font-bold text-amber-400">
+                              {targetDepthPct}% ({targetDepthPct < 45 ? 'Far' : targetDepthPct > 55 ? 'Close' : 'Mid'})
+                            </span>
+                          </div>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          value={targetDepthPct}
+                          onChange={(e) =>
+                            updateRelight({
+                              sculptTargetDepth: Number(e.target.value) / 100,
+                              sculptSmoothMode: false,
+                              editSubMode: 'depth_sculpt',
+                            })
+                          }
+                          className="w-full h-2.5 rounded-lg cursor-pointer border border-white/20"
+                          style={{
+                            background: 'linear-gradient(to right, #000000 0%, #808080 50%, #ffffff 100%)',
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Brush Softness & Flow Sliders */}
+                    <div className="grid grid-cols-2 gap-2.5 pt-1 border-t border-white/10">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between text-[10px] text-white/60">
+                          <span>Brush Softness</span>
+                          <span className="font-mono text-amber-400">
+                            {Math.round((relightCfg.sculptSoftness ?? 0.75) * 100)}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          value={Math.round((relightCfg.sculptSoftness ?? 0.75) * 100)}
+                          onChange={(e) => updateRelight({ sculptSoftness: Number(e.target.value) / 100 })}
+                          className="w-full h-1.5 bg-white/10 accent-amber-400 rounded cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between text-[10px] text-white/60">
+                          <span>Brush Flow</span>
+                          <span className="font-mono text-amber-400">
+                            {Math.round((relightCfg.sculptStrength ?? 0.35) * 100)}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={5}
+                          max={100}
+                          value={Math.round((relightCfg.sculptStrength ?? 0.35) * 100)}
+                          onChange={(e) => updateRelight({ sculptStrength: Number(e.target.value) / 100 })}
+                          className="w-full h-1.5 bg-white/10 accent-amber-400 rounded cursor-pointer"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

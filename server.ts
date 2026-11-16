@@ -21,12 +21,23 @@ const BRUSHES_DIR = path.join(LOCAL_CONTENT_DIR, 'brushes');
 const TEXTURES_DIR = path.join(LOCAL_CONTENT_DIR, 'textures');
 const TIPS_DIR = path.join(LOCAL_CONTENT_DIR, 'brush tips');
 const PROJECTS_DIR = path.join(LOCAL_CONTENT_DIR, 'Projects');
+const OPERATION_MODELS_DIR = path.join(LOCAL_CONTENT_DIR, 'operation models');
 
 // Ensure base directories exist
-for (const dir of [LOCAL_CONTENT_DIR, BRUSHES_DIR, TEXTURES_DIR, TIPS_DIR, PROJECTS_DIR]) {
+for (const dir of [LOCAL_CONTENT_DIR, BRUSHES_DIR, TEXTURES_DIR, TIPS_DIR, PROJECTS_DIR, OPERATION_MODELS_DIR]) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+// Write README in operation models if not present
+const modelsReadmePath = path.join(OPERATION_MODELS_DIR, 'README.txt');
+if (!fs.existsSync(modelsReadmePath)) {
+  fs.writeFileSync(
+    modelsReadmePath,
+    'Hunbatz Operation Models Folder\nPlace local neural and geometric models here (e.g. model.safetensors, DA3-SMALL.safetensors) for offline in-code depth estimation.\n',
+    'utf-8'
+  );
 }
 
 // Serve local content statically under /hunbatz-content
@@ -60,6 +71,10 @@ app.get('/api/local-content/status', (_req, res) => {
       ? fs.readdirSync(PROJECTS_DIR).filter((f) => f.toLowerCase().endsWith('.hbatz')).length
       : 0;
 
+    const operationModels = fs.existsSync(OPERATION_MODELS_DIR)
+      ? fs.readdirSync(OPERATION_MODELS_DIR).filter((f) => /\.(safetensors|onnx|bin|json)$/i.test(f))
+      : [];
+
     res.json({
       ok: true,
       path: LOCAL_CONTENT_DIR,
@@ -69,6 +84,8 @@ app.get('/api/local-content/status', (_req, res) => {
       texturesCount: textures,
       tipsCount: tips,
       projectsCount: projects,
+      operationModelsCount: operationModels.length,
+      operationModels,
     });
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err.message });
