@@ -151,7 +151,11 @@ jobs:
         if: hashFiles('ios/*.xcodeproj/project.pbxproj') != ''
         run: |
           mkdir -p dist/Payload
-          xcodebuild -project ios/*.xcodeproj -scheme HunbatzApp -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=$PWD/build-ios
+          - name: Generate Xcode Project & Package Unsigned .ipa
+        run: |
+          cd ios && xcodegen generate && cd ..
+          mkdir -p dist/Payload
+          xcodebuild -project ios/HunbatzApple.xcodeproj -scheme HunbatzApp -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=$PWD/build-ios
           cp -r build-ios/*.app dist/Payload/
           cd dist && zip -r Hunbatz-Studio-iOS-iPadOS-Unsigned.ipa Payload && rm -rf Payload
 
