@@ -2,6 +2,7 @@ name: Release Hunbatz All 6 Platforms
 
 on:
   push:
+    branches: [ main ]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -13,7 +14,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # 1. Windows (.exe/.zip), Linux (.tar.gz / .AppImage), and macOS (.dmg)
+  # 1. Windows (.exe/.zip), Linux (.tar.gz), and macOS (.dmg)
   desktop:
     name: Desktop (${{ matrix.platform }})
     strategy:
@@ -48,7 +49,6 @@ jobs:
       - name: Build Desktop Release Binary
         run: cargo build --release --target ${{ matrix.target }} -p hunbatz-desktop
 
-      # Package Windows .zip
       - name: Package Windows Release
         if: runner.os == 'Windows'
         shell: pwsh
@@ -57,7 +57,6 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/hunbatz-desktop.exe" "dist/Hunbatz-Studio-Windows-x64.exe"
           Compress-Archive -Path "dist/Hunbatz-Studio-Windows-x64.exe" -DestinationPath "dist/Hunbatz-Studio-Windows-x64.zip"
 
-      # Package Linux .tar.gz
       - name: Package Linux Release
         if: runner.os == 'Linux'
         run: |
@@ -67,7 +66,6 @@ jobs:
           tar -czvf dist/Hunbatz-Studio-Linux-x64.tar.gz -C dist hunbatz-studio-linux-x64
           rm dist/hunbatz-studio-linux-x64
 
-      # Package macOS .app & .dmg
       - name: Package macOS .dmg
         if: runner.os == 'macOS'
         run: |
@@ -147,15 +145,15 @@ jobs:
             --language swift \
             --out-dir ios/HunbatzApp/Generated
 
-      - name: Package Unsigned .ipa (if Xcode project exists)
-        if: hashFiles('ios/*.xcodeproj/project.pbxproj') != ''
+      - name: Generate Xcode Project & Package Unsigned .ipa
+        if: hashFiles('ios/project.yml') != '' || hashFiles('ios/*.xcodeproj/project.pbxproj') != ''
         run: |
+          if [ -f ios/project.yml ]; then
+            brew install xcodegen || true
+            (cd ios && xcodegen generate)
+          fi
           mkdir -p dist/Payload
-          - name: Generate Xcode Project & Package Unsigned .ipa
-        run: |
-          cd ios && xcodegen generate && cd ..
-          mkdir -p dist/Payload
-          xcodebuild -project ios/HunbatzApple.xcodeproj -scheme HunbatzApp -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=$PWD/build-ios
+          xcodebuild -project ios/*.xcodeproj -scheme HunbatzApp -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=$PWD/build-ios
           cp -r build-ios/*.app dist/Payload/
           cd dist && zip -r Hunbatz-Studio-iOS-iPadOS-Unsigned.ipa Payload && rm -rf Payload
 
