@@ -1,0 +1,15 @@
+name: HunbatzApple
+options:
+  bundleIdPrefix: com.hunbatz
+targets:
+  HunbatzApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: HunbatzApp
+    settings:
+      base:
+        INFOPLIST_FILE: HunbatzApp/Info.plist
+        OTHER_LDFLAGS: "-lhunbatz_ffi"
+        LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/../target/aarch64-apple-ios/release"
