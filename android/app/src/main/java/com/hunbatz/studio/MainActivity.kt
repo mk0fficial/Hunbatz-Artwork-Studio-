@@ -1,26 +1,40 @@
 package com.hunbatz.studio
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.os.Bundle
-import android.view.MotionEvent
-import android.view.SurfaceView
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.webkit.WebViewAssetLoader
 
 class MainActivity : Activity() {
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        System.loadLibrary("hunbatz_ffi") // Loads compiled Rust engine
+        System.loadLibrary("hunbatz_ffi")
 
-        val canvasView = SurfaceView(this).apply {
-            setOnTouchListener { _, event ->
-                // Direct S-Pen / Stylus hardware coordinates -> Rust engine
-                if (event.actionMasked == MotionEvent.ACTION_MOVE || event.actionMasked == MotionEvent.ACTION_DOWN) {
-                    val pressure = event.pressure
-                    val tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
-                    // Passes straight to UniFFI HunbatzEngine.onPenInput(...)
+        val assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+
+        val webView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = true
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest
+                ): WebResourceResponse? {
+                    return assetLoader.shouldInterceptRequest(request.url)
                 }
-                true
             }
         }
-        setContentView(canvasView)
+        setContentView(webView)
+        webView.loadUrl("https://appassets.androidplatform.net/assets/index.html")
     }
 }
