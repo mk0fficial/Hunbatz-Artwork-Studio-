@@ -1,15 +1,30 @@
 import SwiftUI
+import WebKit
 
 @main
 struct HunbatzApp: App {
-    // Initializes the shared Rust HunbatzEngine via UniFFI bindings
-    private let engine = HunbatzEngine(width: 2048, height: 2048)
-
     var body: some Scene {
         WindowGroup {
-            MetalCanvasContainer(engine: engine)
+            HunbatzWebView()
                 .ignoresSafeArea()
                 .statusBarHidden(true)
         }
     }
+}
+
+struct HunbatzWebView: UIViewRepresentable {
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+
+        if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "dist") {
+            webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
+        }
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
