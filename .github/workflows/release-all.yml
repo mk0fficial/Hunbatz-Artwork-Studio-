@@ -191,7 +191,16 @@ jobs:
           brew install xcodegen || true
           (cd ios && xcodegen generate)
           mkdir -p release-out/Payload
-          xcodebuild -project ios/HunbatzApple.xcodeproj -scheme HunbatzApp -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=$PWD/build-ios
+          xcodebuild \
+            -project ios/HunbatzApple.xcodeproj \
+            -scheme HunbatzApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CONFIGURATION_BUILD_DIR=$PWD/build-ios
           cp -r build-ios/*.app release-out/Payload/
           (cd release-out && zip -r Hunbatz-Studio-iOS-iPadOS-Unsigned.ipa Payload && rm -rf Payload)
 
