@@ -6,5 +6,6 @@ edition = "2021"
 [dependencies]
 hunbatz-core = { path = "../crates/hunbatz-core" }
 hunbatz-gpu = { path = "../crates/hunbatz-gpu" }
-winit = "0.30"
-pollster = "0.4"
+tao = "0.30"
+wry = "0.47"
+include_dir = "0.7"
