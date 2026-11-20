@@ -1,42 +1,101 @@
-use hunbatz_gpu::GpuRenderer;
-use std::sync::Arc;
-use winit::{
-    application::ApplicationHandler,
-    event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop},
-    window::{Window, WindowId},
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use include_dir::{include_dir, Dir};
+use std::borrow::Cow;
+use tao::{
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
 };
+use wry::{http::Response, WebViewBuilder};
 
-struct App {
-    window: Option<Arc<Window>>,
-    renderer: Option<GpuRenderer<'static>>,
+static DIST_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../dist");
+
+fn mime_type(path: &str) -> &'static str {
+    if path.ends_with(".html") {
+        "text/html"
+    } else if path.ends_with(".js") || path.ends_with(".mjs") {
+        "application/javascript"
+    } else if path.ends_with(".css") {
+        "text/css"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".wasm") {
+        "application/wasm"
+    } else if path.ends_with(".onnx") {
+        "application/octet-stream"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    }
 }
 
-impl ApplicationHandler for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let attrs = Window::default_attributes().with_title("Hunbatz Artwork Studio");
-        let window = Arc::new(event_loop.create_window(attrs).unwrap());
-        let size = window.inner_size();
-        let renderer = pollster::block_on(GpuRenderer::new(window.clone(), size.width, size.height));
-        self.window = Some(window);
-        self.renderer = Some(renderer);
-    }
+fn main() -> wry::Result<()> {
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title("Hunbatz Artwork Studio")
+        .with_inner_size(tao::dpi::LogicalSize::new(1360.0, 860.0))
+        .build(&event_loop)
+        .expect("Failed to create window");
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => {
-                if let Some(renderer) = &mut self.renderer {
-                    renderer.resize(size.width, size.height);
-                }
+    let builder = WebViewBuilder::new()
+        .with_custom_protocol("hunbatz".into(), |_webview_id, request| {
+            let uri_path = request.uri().path().trim_start_matches('/');
+            let path = if uri_path.is_empty() {
+                "index.html"
+            } else {
+                uri_path
+            };
+
+            let file = DIST_DIR
+                .get_file(path)
+                .or_else(|| DIST_DIR.get_file("index.html"));
+
+            match file {
+                Some(f) => Response::builder()
+                    .header("Content-Type", mime_type(f.path().to_str().unwrap_or(path)))
+                    .body(Cow::Borrowed(f.contents()))
+                    .unwrap(),
+                None => Response::builder()
+                    .status(404)
+                    .body(Cow::Borrowed(b"Not Found" as &[u8]))
+                    .unwrap(),
             }
-            _ => {}
-        }
-    }
-}
+        })
+        .with_url("hunbatz://localhost/index.html");
 
-fn main() {
-    let event_loop = EventLoop::new().unwrap();
-    let mut app = App { window: None, renderer: None };
-    event_loop.run_app(&mut app).unwrap();
+    #[cfg(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    ))]
+    let _webview = builder.build(&window)?;
+
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    )))]
+    let _webview = {
+        use tao::platform::unix::WindowExtUnix;
+        use wry::WebViewBuilderExtUnix;
+        let vbox = window.default_vbox().unwrap();
+        builder.build_gtk(vbox)?
+    };
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        if let Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
+            *control_flow = ControlFlow::Exit;
+        }
+    });
 }
