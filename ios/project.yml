@@ -8,8 +8,11 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: HunbatzApp
+      - path: dist
+        type: folder
     settings:
       base:
         INFOPLIST_FILE: HunbatzApp/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.hunbatz.studio
         OTHER_LDFLAGS: "-lhunbatz_ffi"
         LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/../target/aarch64-apple-ios/release"
