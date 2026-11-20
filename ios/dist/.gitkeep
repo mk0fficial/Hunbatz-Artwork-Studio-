@@ -1,0 +1,33 @@
+Hunbatz-Artwork-Studio-/
+├── Cargo.toml                                        ✅
+├── crates/
+│   ├── hunbatz-core/
+│   │   ├── Cargo.toml                                ✅
+│   │   └── src/lib.rs                                ✅
+│   ├── hunbatz-gpu/
+│   │   ├── Cargo.toml                                ✅
+│   │   └── src/lib.rs                                ✅
+│   └── hunbatz-ffi/
+│       ├── Cargo.toml                                ✅
+│       ├── uniffi-bindgen.rs                         ✅
+│       └── src/lib.rs                                ✅
+├── desktop/
+│   ├── Cargo.toml                                    ✅
+│   └── src/main.rs                                   ✅
+├── android/
+│   ├── gradle.properties                             <-- ADD THIS
+│   ├── settings.gradle.kts                           ✅
+│   ├── build.gradle.kts                              ✅
+│   └── app/
+│       ├── build.gradle.kts                          ✅
+│       └── src/main/
+│           ├── AndroidManifest.xml                   ✅
+│           └── java/com/hunbatz/studio/MainActivity.kt ✅
+├── ios/
+│   ├── project.yml                                   ✅
+│   ├── dist/.gitkeep                                 <-- ADD THIS
+│   └── HunbatzApp/
+│       ├── HunbatzApp.swift                          ✅
+│       └── Info.plist                                ✅
+└── .github/workflows/
+    └── release-all.yml                               ✅ (Make sure no old workflow files remain)
