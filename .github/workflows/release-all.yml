@@ -14,9 +14,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # 0. Build the Hunbatz React/TypeScript Studio UI once
+  build-frontend:
+    name: Build Studio Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies & Build Web App
+        run: |
+          bun install
+          bun run build
+
+      - name: Upload Frontend Dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist/
+
   # 1. Windows (.exe/.zip), Linux (.tar.gz), and macOS (.dmg)
   desktop:
     name: Desktop (${{ matrix.platform }})
+    needs: [build-frontend]
     strategy:
       fail-fast: false
       matrix:
@@ -35,16 +58,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download Frontend Dist
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Linux Dependencies
+      - name: Install Linux WebView & GPU Dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libvulkan-dev libasound2-dev pkg-config
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libxkbcommon-dev libwayland-dev libx11-dev libvulkan-dev pkg-config
 
       - name: Build Desktop Release Binary
         run: cargo build --release --target ${{ matrix.target }} -p hunbatz-desktop
@@ -53,39 +82,46 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist
-          Copy-Item "target/${{ matrix.target }}/release/hunbatz-desktop.exe" "dist/Hunbatz-Studio-Windows-x64.exe"
-          Compress-Archive -Path "dist/Hunbatz-Studio-Windows-x64.exe" -DestinationPath "dist/Hunbatz-Studio-Windows-x64.zip"
+          New-Item -ItemType Directory -Force -Path release-out
+          Copy-Item "target/${{ matrix.target }}/release/hunbatz-desktop.exe" "release-out/Hunbatz-Studio-Windows-x64.exe"
+          Compress-Archive -Path "release-out/Hunbatz-Studio-Windows-x64.exe" -DestinationPath "release-out/Hunbatz-Studio-Windows-x64.zip"
 
       - name: Package Linux Release
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/hunbatz-desktop dist/hunbatz-studio-linux-x64
-          chmod +x dist/hunbatz-studio-linux-x64
-          tar -czvf dist/Hunbatz-Studio-Linux-x64.tar.gz -C dist hunbatz-studio-linux-x64
-          rm dist/hunbatz-studio-linux-x64
+          mkdir -p release-out
+          cp target/${{ matrix.target }}/release/hunbatz-desktop release-out/hunbatz-studio-linux-x64
+          chmod +x release-out/hunbatz-studio-linux-x64
+          tar -czvf release-out/Hunbatz-Studio-Linux-x64.tar.gz -C release-out hunbatz-studio-linux-x64
+          rm release-out/hunbatz-studio-linux-x64
 
       - name: Package macOS .dmg
         if: runner.os == 'macOS'
         run: |
-          mkdir -p dist/HunbatzStudio.app/Contents/MacOS
-          cp target/${{ matrix.target }}/release/hunbatz-desktop dist/HunbatzStudio.app/Contents/MacOS/HunbatzStudio
-          hdiutil create -volname "Hunbatz Studio" -srcfolder dist/HunbatzStudio.app -ov -format UDZO dist/Hunbatz-Studio-macOS.dmg
-          rm -rf dist/HunbatzStudio.app
+          mkdir -p release-out/HunbatzStudio.app/Contents/MacOS
+          cp target/${{ matrix.target }}/release/hunbatz-desktop release-out/HunbatzStudio.app/Contents/MacOS/HunbatzStudio
+          hdiutil create -volname "Hunbatz Studio" -srcfolder release-out/HunbatzStudio.app -ov -format UDZO release-out/Hunbatz-Studio-macOS.dmg
+          rm -rf release-out/HunbatzStudio.app
 
       - name: Upload Desktop Release Asset
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.platform }}
-          path: dist/*
+          path: release-out/*
 
   # 2. Android (.apk)
   android:
     name: Android APK
+    needs: [build-frontend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download Frontend Dist into Android Assets
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: android/app/src/main/assets
 
       - name: Install Rust Android Targets
         uses: dtolnay/rust-toolchain@stable
@@ -117,52 +153,53 @@ jobs:
         working-directory: android
         run: gradle assembleRelease
 
+      - name: Rename & Upload Android APK
+        run: |
+          mkdir -p release-out
+          cp android/app/build/outputs/apk/release/*.apk release-out/Hunbatz-Studio-Android-Universal.apk
+
       - name: Upload Android Release Asset
         uses: actions/upload-artifact@v4
         with:
           name: release-android
-          path: android/app/build/outputs/apk/release/*.apk
+          path: release-out/*.apk
 
   # 3. iOS & iPadOS (.ipa)
   apple:
     name: iOS & iPadOS IPA
+    needs: [build-frontend]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download Frontend Dist into iOS Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: ios/dist
+
       - name: Install Rust iOS Target
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-darwin
+          targets: aarch64-apple-ios
 
-      - name: Build Rust iOS Static Library & Swift Bindings
-        run: |
-          cargo build --release --target aarch64-apple-ios -p hunbatz-ffi
-          cargo build --release --target aarch64-apple-darwin -p hunbatz-ffi
-          mkdir -p ios/HunbatzApp/Generated
-          cargo run -p hunbatz-ffi --features=uniffi/cli -- generate \
-            --library target/aarch64-apple-darwin/release/libhunbatz_ffi.dylib \
-            --language swift \
-            --out-dir ios/HunbatzApp/Generated
+      - name: Build Rust iOS Static Library
+        run: cargo build --release --target aarch64-apple-ios -p hunbatz-ffi
 
       - name: Generate Xcode Project & Package Unsigned .ipa
-        if: hashFiles('ios/project.yml') != '' || hashFiles('ios/*.xcodeproj/project.pbxproj') != ''
         run: |
-          if [ -f ios/project.yml ]; then
-            brew install xcodegen || true
-            (cd ios && xcodegen generate)
-          fi
-          mkdir -p dist/Payload
-          xcodebuild -project ios/*.xcodeproj -scheme HunbatzApp -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=$PWD/build-ios
-          cp -r build-ios/*.app dist/Payload/
-          cd dist && zip -r Hunbatz-Studio-iOS-iPadOS-Unsigned.ipa Payload && rm -rf Payload
+          brew install xcodegen || true
+          (cd ios && xcodegen generate)
+          mkdir -p release-out/Payload
+          xcodebuild -project ios/HunbatzApple.xcodeproj -scheme HunbatzApp -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR=$PWD/build-ios
+          cp -r build-ios/*.app release-out/Payload/
+          (cd release-out && zip -r Hunbatz-Studio-iOS-iPadOS-Unsigned.ipa Payload && rm -rf Payload)
 
       - name: Upload iOS Release Asset
-        if: hashFiles('dist/*.ipa') != ''
         uses: actions/upload-artifact@v4
         with:
           name: release-ios
-          path: dist/*.ipa
+          path: release-out/*.ipa
 
   # 4. Attach ALL 6 Platform Assets to the GitHub Release Page
   publish-release:
