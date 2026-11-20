@@ -4,14 +4,16 @@
 <dict>
     <key>CFBundleName</key>
     <string>Hunbatz Artwork Studio</string>
+    <key>CFBundleExecutable</key>
+    <string>HunbatzApp</string>
     <key>CFBundleIdentifier</key>
     <string>com.hunbatz.studio</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
-    <key>CADisableMinimumFrameDurationOnPhone</key>
-    <true/>
+    <string>1.0.0</string>
+    <key>UILaunchScreen</key>
+    <dict/>
     <key>UIRequiresFullScreen</key>
     <true/>
 </dict>
