@@ -22,6 +22,8 @@ fn mime_type(path: &str) -> &'static str {
         "image/svg+xml"
     } else if path.ends_with(".png") {
         "image/png"
+    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        "image/jpeg"
     } else if path.ends_with(".wasm") {
         "application/wasm"
     } else if path.ends_with(".onnx") {
